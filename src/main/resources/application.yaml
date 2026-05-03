@@ -6,6 +6,17 @@ declarative:
 server:
   port: 8080
   host: 0.0.0.0
+  # https://helidon.io/docs/v4/se/guides/performance-tuning
+  # https://helidon.io/docs/v4/se/webserver/concurrency-limits
+  concurrency-limit:
+    aimd:
+      min-limit: 4
+      max-limit: 32
+      initial-limit: 16
+      timeout: "PT0.5S"
+      backoff-ratio: 0.9
+      queue-length: 150
+      queue-timeout: PT4S
 
 # Properties customizadas
 app:
