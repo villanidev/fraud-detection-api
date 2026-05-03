@@ -13,7 +13,6 @@ import io.helidon.config.Config;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
-import java.util.List;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.*;
@@ -111,13 +110,15 @@ class FraudDetectionIntegrationTest {
             "tx-1329056812",
             new TransactionRequest.TransactionData(
                 41.12f, 2,
-                OffsetDateTime.parse("2026-03-11T18:45:53Z")
+                OffsetDateTime.parse("2026-03-11T18:45:53Z").getHour(),
+                OffsetDateTime.parse("2026-03-11T18:45:53Z").getDayOfWeek().getValue(),
+                OffsetDateTime.parse("2026-03-11T18:45:53Z").toEpochSecond()
             ),
             new TransactionRequest.CustomerData(
                 82.24f, 3,
-                List.of("MERC-003", "MERC-016")
+                false   // MERC-016 is in known_merchants → unknownMerchant=false
             ),
-            new TransactionRequest.MerchantData("MERC-016", "5411", 60.25f),
+            new TransactionRequest.MerchantData("MERC-016", 5411, 60.25f),
             new TransactionRequest.TerminalData(false, true, 29.2331036248f),
             null
         );
@@ -228,26 +229,31 @@ class FraudDetectionIntegrationTest {
     private static TransactionRequest txHighRisk(String id, float amount, int installments,
                                                   String requestedAt, float mccRisk, int txCount24h) {
         // Find a mcc that has the requested risk level (approximate)
-        String mcc = mccRisk >= 0.80f ? "7801" : mccRisk >= 0.75f ? "7802" : "7995";
+        int mccCode = mccRisk >= 0.80f ?  7801  : mccRisk >= 0.75f ?  7802  :  7995;
+        OffsetDateTime at = OffsetDateTime.parse(requestedAt);
+        long txEpoch = at.toEpochSecond();
         return new TransactionRequest(
             id,
-            new TransactionRequest.TransactionData(amount, installments, OffsetDateTime.parse(requestedAt)),
-            new TransactionRequest.CustomerData(amount * 0.1f, txCount24h, List.of("MERC-KNOWN")),
-            new TransactionRequest.MerchantData("MERC-UNKNOWN-999", mcc, amount * 0.05f),
+            new TransactionRequest.TransactionData(amount, installments,
+                at.getHour(), at.getDayOfWeek().getValue(), txEpoch),
+            new TransactionRequest.CustomerData(amount * 0.1f, txCount24h, false), // MERC-KNOWN is known
+            new TransactionRequest.MerchantData("MERC-UNKNOWN-999", mccCode, amount * 0.05f),
             new TransactionRequest.TerminalData(true, false, 900f),   // online, no card, far
             new TransactionRequest.LastTransactionData(
-                OffsetDateTime.parse(requestedAt).minusMinutes(2),    // 2 min ago = suspicious
-                850f                                                   // 850 km from last tx
+                txEpoch - 120,   // 2 minutes ago = suspicious
+                850f             // 850 km from last tx
             )
         );
     }
 
     private static TransactionRequest txLowRisk(String id, float amount, String requestedAt) {
+        OffsetDateTime at = OffsetDateTime.parse(requestedAt);
         return new TransactionRequest(
             id,
-            new TransactionRequest.TransactionData(amount, 1, OffsetDateTime.parse(requestedAt)),
-            new TransactionRequest.CustomerData(amount * 1.5f, 2, List.of("MERC-016")),
-            new TransactionRequest.MerchantData("MERC-016", "5411", amount * 1.2f),
+            new TransactionRequest.TransactionData(amount, 1,
+                at.getHour(), at.getDayOfWeek().getValue(), at.toEpochSecond()),
+            new TransactionRequest.CustomerData(amount * 1.5f, 2, false), // MERC-016 is known
+            new TransactionRequest.MerchantData("MERC-016", 5411, amount * 1.2f),
             new TransactionRequest.TerminalData(false, true, 5f),   // offline, card present, near home
             null
         );

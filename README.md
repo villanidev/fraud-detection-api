@@ -208,11 +208,13 @@ done
 
 ## Variáveis de ambiente
 
-| Variável                    | Padrão                                  | Descrição                                      |
-| --------------------------- | --------------------------------------- | ---------------------------------------------- |
-| `REFERENCES_PATH`           | `src/main/resources/references.json.gz` | Dataset de referência                          |
-| `NORMALIZATION_PATH`        | `src/main/resources/normalization.json` | Parâmetros de normalização                     |
-| `MCC_RISK_PATH`             | `src/main/resources/mcc_risk.json`      | Score de risco por MCC                         |
-| `DATA_BIN_PATH`             | `data.bin`                              | Caminho do índice gerado                       |
-| `APP_VECTOR__SEARCH_INDEX`  | `ivf_pq`                                | Algoritmo de busca (`brute_force` ou `ivf_pq`) |
-| `APP_VECTOR__SEARCH_RERANK` | `true`                                  | Rerank dos candidatos por distância exata      |
+| Variável                        | Padrão                                  | Descrição                                      |
+| ------------------------------- | --------------------------------------- | ---------------------------------------------- |
+| `REFERENCES_PATH`               | `src/main/resources/references.json.gz` | Dataset de referência                          |
+| `NORMALIZATION_PATH`            | `src/main/resources/normalization.json` | Parâmetros de normalização                     |
+| `MCC_RISK_PATH`                 | `src/main/resources/mcc_risk.json`      | Score de risco por MCC                         |
+| `DATA_BIN_PATH`                 | `data.bin`                              | Caminho do índice gerado                       |
+| `APP_VECTOR__SEARCH_INDEX`      | `ivf_pq`                                | Algoritmo de busca (`brute_force` ou `ivf_pq`) |
+| `APP_VECTOR__SEARCH_RERANK`     | `true`                                  | Rerank dos candidatos por distância exata      |
+| `APP_VECTOR__SEARCH_NPROBE`     | `16`                                    | Número de clusters inspecionados por query     |
+| `APP_VECTOR__SEARCH_CANDIDATES` | `50`                                    | Candidatos coarse antes do rerank              |

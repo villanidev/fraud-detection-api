@@ -62,6 +62,15 @@ public class ProductQuantizer {
      */
     public float[][] buildAdcTable(float[] query) {
         float[][] table = new float[M][CODEBOOK_SIZE];
+        buildAdcTable(query, table);
+        return table;
+    }
+
+    /**
+     * In-place variant — writes into a pre-allocated table (avoids float[M][256] allocation per request).
+     * Use with a ThreadLocal-cached table for zero-allocation hot path.
+     */
+    public void buildAdcTable(float[] query, float[][] table) {
         for (int m = 0; m < M; m++) {
             float q0 = query[m * SUB_D];
             float q1 = query[m * SUB_D + 1];
@@ -71,7 +80,6 @@ public class ProductQuantizer {
                 table[m][c] = d0 * d0 + d1 * d1;
             }
         }
-        return table;
     }
 
     /**

@@ -4,9 +4,6 @@ import org.junit.jupiter.api.Test;
 import villani.dev.fraud.TransactionRequest;
 import villani.dev.vectorsearch.embedding.EmbeddingService;
 
-import java.time.OffsetDateTime;
-import java.util.List;
-
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.closeTo;
 
@@ -46,13 +43,14 @@ class EmbeddingServiceTest {
             "tx-1329056812",
             new TransactionRequest.TransactionData(
                 41.12f, 2,
-                OffsetDateTime.parse("2026-03-11T18:45:53Z")
+                18, 3,          // 2026-03-11T18:45:53Z → hour=18, dow=3 (Wednesday)
+                1774454753L     // epoch seconds (unused: last_tx=null)
             ),
             new TransactionRequest.CustomerData(
                 82.24f, 3,
-                List.of("MERC-003", "MERC-016")
+                false          // MERC-016 is in known_merchants → unknownMerchant=false
             ),
-            new TransactionRequest.MerchantData("MERC-016", "5411", 60.25f),
+            new TransactionRequest.MerchantData("MERC-016", 5411, 60.25f),
             new TransactionRequest.TerminalData(false, true, 29.2331036248f),
             null  // last_transaction = null
         );
@@ -116,16 +114,17 @@ class EmbeddingServiceTest {
             "tx-3576980410",
             new TransactionRequest.TransactionData(
                 384.88f, 3,
-                OffsetDateTime.parse("2026-03-11T20:23:35Z")
+                20, 3,          // 2026-03-11T20:23:35Z → hour=20, dow=3 (Wednesday)
+                1774460615L     // epoch seconds
             ),
             new TransactionRequest.CustomerData(
                 769.76f, 3,
-                List.of("MERC-009", "MERC-001")
+                false          // MERC-001 is in known_merchants → unknownMerchant=false
             ),
-            new TransactionRequest.MerchantData("MERC-001", "5912", 298.95f),
+            new TransactionRequest.MerchantData("MERC-001", 5912, 298.95f),
             new TransactionRequest.TerminalData(false, true, 13.7090520965f),
             new TransactionRequest.LastTransactionData(
-                OffsetDateTime.parse("2026-03-11T14:58:35Z"),
+                1774441115L,    // 2026-03-11T14:58:35Z → (1774460615-1774441115)/60 = 325 min
                 18.8626479774f
             )
         );
@@ -153,11 +152,12 @@ class EmbeddingServiceTest {
         TransactionRequest tx = new TransactionRequest(
             "tx-test",
             new TransactionRequest.TransactionData(
-                50000f, 15,  // amount > max → clamped to 1.0; installments > max → clamped
-                OffsetDateTime.parse("2026-01-05T00:00:00Z")
+                50000f, 15,    // amount > max → clamped to 1.0; installments > max → clamped
+                0, 1,          // 2026-01-05T00:00:00Z → hour=0, dow=1 (Monday)
+                1767571200L    // epoch seconds (unused: last_tx=null)
             ),
-            new TransactionRequest.CustomerData(100f, 25, List.of("MERC-AAA")),
-            new TransactionRequest.MerchantData("MERC-ZZZ", "9999", 9999f),
+            new TransactionRequest.CustomerData(100f, 25, true),  // MERC-ZZZ not in [MERC-AAA] → unknown
+            new TransactionRequest.MerchantData("MERC-ZZZ", 9999, 9999f),
             new TransactionRequest.TerminalData(true, false, 2000f),
             null
         );

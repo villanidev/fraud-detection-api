@@ -8,6 +8,8 @@ services:
     depends_on:
       - api1
       - api2
+    networks:
+      - rinha
     deploy:
       resources:
         limits:
@@ -18,9 +20,11 @@ services:
     image: ${IMAGE:-villanidev/rinha-de-backend-2026:latest}
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
-      APP_VECTOR__SEARCH_NPROBE: "16"
+      APP_VECTOR__SEARCH_NPROBE: "32"
       APP_VECTOR__SEARCH_CANDIDATES: "50"
-      APP_VECTOR__SEARCH_RERANK: "true"
+      APP_VECTOR__SEARCH_RERANK: "false"
+    networks:
+      - rinha
     deploy:
       resources:
         limits:
@@ -31,11 +35,17 @@ services:
     image: ${IMAGE:-villanidev/rinha-de-backend-2026:latest}
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
-      APP_VECTOR__SEARCH_NPROBE: "16"
+      APP_VECTOR__SEARCH_NPROBE: "32"
       APP_VECTOR__SEARCH_CANDIDATES: "50"
-      APP_VECTOR__SEARCH_RERANK: "true"
+      APP_VECTOR__SEARCH_RERANK: "false"
+    networks:
+      - rinha
     deploy:
       resources:
         limits:
           cpus: "0.4"
           memory: "155MB"
+
+networks:
+  rinha:
+    driver: bridge

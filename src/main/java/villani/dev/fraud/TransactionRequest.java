@@ -1,6 +1,5 @@
 package villani.dev.fraud;
 
-import java.time.OffsetDateTime;
 import java.util.List;
 
 public record TransactionRequest(
@@ -11,21 +10,30 @@ public record TransactionRequest(
         TerminalData terminal,
         LastTransactionData last_transaction
 ) {
+    /**
+     * Timestamp fields are pre-parsed at the HTTP layer to avoid OffsetDateTime allocation.
+     * epochSeconds is only needed when last_transaction is present (minutes_since_last_tx).
+     */
     public record TransactionData(
             float amount,
             int installments,
-            OffsetDateTime requested_at
+            int hour,
+            int dayOfWeek,
+            long epochSeconds
     ) {}
 
+    /**
+     * known_merchants resolved to a single boolean at parse time — no list stored.
+     */
     public record CustomerData(
             float avg_amount,
             int tx_count_24h,
-            List<String> known_merchants
+            boolean unknownMerchant
     ) {}
 
     public record MerchantData(
             String id,
-            String mcc,
+            int mccCode,
             float avg_amount
     ) {}
 
@@ -36,7 +44,7 @@ public record TransactionRequest(
     ) {}
 
     public record LastTransactionData(
-            OffsetDateTime timestamp,
+            long epochSeconds,
             float km_from_current
     ) {}
 }

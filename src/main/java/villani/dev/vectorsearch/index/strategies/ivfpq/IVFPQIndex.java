@@ -26,6 +26,12 @@ public class IVFPQIndex implements VectorIndex {
     private final int nprobe;
     private final int candidates;
 
+    // ThreadLocal scratch arrays — eliminates ~11KB of heap allocation per request.
+    // centroidDist/centroidOrder are K=512 floats/ints; adcTable is M×256 floats.
+    private final ThreadLocal<float[]>   tlCentroidDist;
+    private final ThreadLocal<int[]>     tlCentroidOrder;
+    private final ThreadLocal<float[][]> tlAdcTable;
+
     public IVFPQIndex(float[][] centroids,
                       int[][] idsByCluster,
                       byte[][] codesByCluster,
@@ -40,6 +46,11 @@ public class IVFPQIndex implements VectorIndex {
         this.pq = pq;
         this.nprobe = nprobe;
         this.candidates = candidates;
+
+        int K = centroids.length;
+        this.tlCentroidDist  = ThreadLocal.withInitial(() -> new float[K]);
+        this.tlCentroidOrder = ThreadLocal.withInitial(() -> new int[K]);
+        this.tlAdcTable      = ThreadLocal.withInitial(() -> new float[ProductQuantizer.M][ProductQuantizer.CODEBOOK_SIZE]);
     }
 
     @Override
@@ -48,17 +59,18 @@ public class IVFPQIndex implements VectorIndex {
         int actualProbes = Math.min(nprobe, K);
         int actualCandidates = Math.min(candidates, k);
 
-        // --- Step 1: Find nprobe nearest centroids ---
-        float[] centroidDist = new float[K];
-        int[] centroidOrder = new int[K];
+        // --- Step 1: Find nprobe nearest centroids (reuse ThreadLocal scratch arrays) ---
+        float[]   centroidDist  = tlCentroidDist.get();
+        int[]     centroidOrder = tlCentroidOrder.get();
         for (int c = 0; c < K; c++) {
-            centroidDist[c] = squaredDistance(query, centroids[c]);
+            centroidDist[c]  = squaredDistance(query, centroids[c]);
             centroidOrder[c] = c;
         }
         partialSort(centroidOrder, centroidDist, actualProbes);
 
-        // --- Step 2: Precompute ADC table ---
-        float[][] adcTable = pq.buildAdcTable(query);
+        // --- Step 2: Precompute ADC table (reuse ThreadLocal scratch array) ---
+        float[][] adcTable = tlAdcTable.get();
+        pq.buildAdcTable(query, adcTable);
 
         // --- Step 3+4: Scan clusters and maintain top-candidates ---
         Arrays.fill(distances, Float.MAX_VALUE);

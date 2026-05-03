@@ -3,8 +3,6 @@ package villani.dev.vectorsearch.embedding;
 import io.helidon.service.registry.Service;
 import villani.dev.fraud.TransactionRequest;
 
-import java.time.temporal.ChronoUnit;
-
 /**
  * Converts a TransactionRequest into a 14-dimensional normalized float vector
  * suitable for vector similarity search.
@@ -32,10 +30,10 @@ public class EmbeddingService {
         embeddings[2] = avgAmount > 0 ? clamp((amount / avgAmount) / norms[2]) : 0f;
 
         // [3] hour_of_day  (0–23 UTC)
-        embeddings[3] = tx.transaction().requested_at().getHour() / 23.0f;
+        embeddings[3] = tx.transaction().hour() / 23.0f;
 
-        // [4] day_of_week  Mon=0 … Sun=6
-        embeddings[4] = (tx.transaction().requested_at().getDayOfWeek().getValue() - 1) / 6.0f;
+        // [4] day_of_week  Mon=1 … Sun=7 (ISO)
+        embeddings[4] = (tx.transaction().dayOfWeek() - 1) / 6.0f;
 
         // [5] minutes_since_last_tx, [6] km_from_last_tx — sentinel -1 when null
         TransactionRequest.LastTransactionData last = tx.last_transaction();
@@ -43,7 +41,7 @@ public class EmbeddingService {
             embeddings[5] = -1f;
             embeddings[6] = -1f;
         } else {
-            long minutes = ChronoUnit.MINUTES.between(last.timestamp(), tx.transaction().requested_at());
+            long minutes = (tx.transaction().epochSeconds() - last.epochSeconds()) / 60L;
             embeddings[5] = clamp(minutes / norms[3]);        // norms[3] = max_minutes
             embeddings[6] = clamp(last.km_from_current() / norms[4]); // norms[4] = max_km
         }
@@ -60,11 +58,11 @@ public class EmbeddingService {
         // [10] card_present
         embeddings[10] = tx.terminal().card_present() ? 1f : 0f;
 
-        // [11] unknown_merchant (1 = unknown, 0 = known)
-        embeddings[11] = tx.customer().known_merchants().contains(tx.merchant().id()) ? 0f : 1f;
+        // [11] unknown_merchant (1 = unknown, 0 = known) — pre-computed at parse time
+        embeddings[11] = tx.customer().unknownMerchant() ? 1f : 0f;
 
-        // [12] mcc_risk — table lookup, default 0.5 for unknown MCC
-        embeddings[12] = mccRiskFor(mccRisk, tx.merchant().mcc());
+        // [12] mcc_risk — direct int index, no parseInt needed
+        embeddings[12] = mccRiskFor(mccRisk, tx.merchant().mccCode());
 
         // [13] merchant_avg_amount
         embeddings[13] = clamp(tx.merchant().avg_amount() / norms[6]);
@@ -72,13 +70,8 @@ public class EmbeddingService {
         return embeddings;
     }
 
-    private static float mccRiskFor(float[] mccRisk, String mcc) {
-        try {
-            int code = Integer.parseInt(mcc);
-            if (code >= 0 && code < mccRisk.length) return mccRisk[code];
-        } catch (NumberFormatException ignored) {
-            // non-numeric MCC — use default
-        }
+    private static float mccRiskFor(float[] mccRisk, int mccCode) {
+        if (mccCode >= 0 && mccCode < mccRisk.length) return mccRisk[mccCode];
         return 0.5f;
     }
 
