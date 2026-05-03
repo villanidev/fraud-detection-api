@@ -23,6 +23,8 @@ public class FraudCheckService {
         "mcc_risk", "merchant_avg_amount"
     };
 
+    private static final boolean DEBUG = false;
+
     public String checkScore(TransactionRequest tx) {
         return checkScore(tx, System.nanoTime());
     }
@@ -50,22 +52,24 @@ public class FraudCheckService {
         double searchMs = (t2 - t1) / 1_000_000.0;
         double totalMs  = (t3 - requestStartNs) / 1_000_000.0;
 
-        byte[] labels = vectorStore.getIndexLabels();
-        System.out.printf("[FRAUD] ── tx=%s  (parse=%.3fms  embed=%.3fms  search=%.3fms  total=%.3fms) ───%n",
-            tx.id(), parseMs, embedMs, searchMs, totalMs);
-        System.out.println("[FRAUD] Embedding:");
-        for (int i = 0; i < emb.length; i++) {
-            System.out.printf("[FRAUD]   [%2d] %-22s = % .6f%s%n",
-                i, DIM_NAMES[i], emb[i],
-                (emb[i] == -1f) ? "  (sentinel: no last_tx)" : "");
+        if (DEBUG) {
+            byte[] labels = vectorStore.getIndexLabels();
+            System.out.printf("[FRAUD] ── tx=%s  (parse=%.3fms  embed=%.3fms  search=%.3fms  total=%.3fms) ───%n",
+                tx.id(), parseMs, embedMs, searchMs, totalMs);
+            System.out.println("[FRAUD] Embedding:");
+            for (int i = 0; i < emb.length; i++) {
+                System.out.printf("[FRAUD]   [%2d] %-22s = % .6f%s%n",
+                    i, DIM_NAMES[i], emb[i],
+                    (emb[i] == -1f) ? "  (sentinel: no last_tx)" : "");
+            }
+            System.out.println("[FRAUD] Nearest neighbors (k=5):");
+            for (int i = 0; i < neighbors.length; i++) {
+                int id = neighbors[i];
+                String labelStr = (id < 0) ? "EMPTY" : (labels[id] == 1 ? "FRAUD" : "legit");
+                System.out.printf("[FRAUD]   [%d] id=%-8d dist=%.6f  → %s%n", i, id, distances[i], labelStr);
+            }
+            System.out.printf("[FRAUD] Result: %d/5 fraud  score=%.4f  approved=%b%n%n", fraudCount, score, approved);
         }
-        System.out.println("[FRAUD] Nearest neighbors (k=5):");
-        for (int i = 0; i < neighbors.length; i++) {
-            int id = neighbors[i];
-            String labelStr = (id < 0) ? "EMPTY" : (labels[id] == 1 ? "FRAUD" : "legit");
-            System.out.printf("[FRAUD]   [%d] id=%-8d dist=%.6f  → %s%n", i, id, distances[i], labelStr);
-        }
-        System.out.printf("[FRAUD] Result: %d/5 fraud  score=%.4f  approved=%b%n%n", fraudCount, score, approved);
 
         return String.format("{\"approved\":%b,\"fraud_score\":%.4f}", approved, score);
     }

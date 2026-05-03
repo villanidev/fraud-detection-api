@@ -76,16 +76,17 @@ public class ProductQuantizer {
 
     /**
      * Approximate squared Euclidean distance between query and a PQ-encoded vector,
-     * using the precomputed ADC table.
+     * using the precomputed ADC table. Offset-based variant for flat byte[] storage
+     * (avoids 3M small byte[7] object allocations and their JVM header overhead).
      */
-    public float adcDistance(float[][] table, byte[] code) {
-        return table[0][code[0] & 0xFF]
-             + table[1][code[1] & 0xFF]
-             + table[2][code[2] & 0xFF]
-             + table[3][code[3] & 0xFF]
-             + table[4][code[4] & 0xFF]
-             + table[5][code[5] & 0xFF]
-             + table[6][code[6] & 0xFF];
+    public float adcDistance(float[][] table, byte[] codes, int offset) {
+        return table[0][codes[offset]     & 0xFF]
+             + table[1][codes[offset + 1] & 0xFF]
+             + table[2][codes[offset + 2] & 0xFF]
+             + table[3][codes[offset + 3] & 0xFF]
+             + table[4][codes[offset + 4] & 0xFF]
+             + table[5][codes[offset + 5] & 0xFF]
+             + table[6][codes[offset + 6] & 0xFF];
     }
 
     public float[][][] getCodebooks() {

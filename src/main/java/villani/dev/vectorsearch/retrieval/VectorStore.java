@@ -99,9 +99,15 @@ public class VectorStore {
 
             // --- Original vectors (N * 14 floats) ---
             // Loaded into heap only for brute_force (testing only — not viable for 3M at runtime).
-            // For ivf_pq we skip into heap and use mmap for reranking.
-            MappedByteBuffer vectorsMmap = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size());
-            vectorsMmap.order(ByteOrder.BIG_ENDIAN);
+            // For ivf_pq: map only the vector section to minimize virtual address range used
+            // for reranking. Physical pages are only faulted in when a candidate is actually read
+            // (~50 vectors per query = ~200KB of RAM, not 168MB).
+            long vectorSectionBytes = (long) N * DIMS * Float.BYTES;
+            MappedByteBuffer vectorsMmap = factory.isRerank()
+                    ? (MappedByteBuffer) channel.map(FileChannel.MapMode.READ_ONLY,
+                                                     vectorsOffset, vectorSectionBytes)
+                                                 .order(ByteOrder.BIG_ENDIAN)
+                    : null;
 
             float[][] vectors = null;
             if (factory.isBruteForce()) {
@@ -120,14 +126,14 @@ public class VectorStore {
 
             // --- Inverted lists ---
             int[][] idsByCluster = new int[K][];
-            byte[][][] codesByCluster = new byte[K][][];
+            byte[][] codesByCluster = new byte[K][]; // flat: byte[count*M] per cluster
             for (int c = 0; c < K; c++) {
                 int count = buf.getInt();
                 idsByCluster[c] = new int[count];
-                codesByCluster[c] = new byte[count][ProductQuantizer.M];
+                codesByCluster[c] = new byte[count * ProductQuantizer.M];
                 for (int i = 0; i < count; i++) {
                     idsByCluster[c][i] = buf.getInt();
-                    buf.get(codesByCluster[c][i]);
+                    buf.get(codesByCluster[c], i * ProductQuantizer.M, ProductQuantizer.M);
                 }
             }
 
@@ -136,9 +142,10 @@ public class VectorStore {
             pq.setCodebooks(codebooks);
 
             // --- Create index via factory ---
+            // vectorsMmap is mapped from vectorsOffset, so relative offset within it is 0.
             this.index = factory.create(centroids, idsByCluster, codesByCluster,
                                         vectors, labels, pq,
-                                        vectorsMmap, vectorsOffset, N);
+                                        vectorsMmap, 0L, N);
             this.norms = loadedNorms;
             this.mccRisk = loadedMcc;
         }

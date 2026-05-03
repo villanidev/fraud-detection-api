@@ -1,5 +1,6 @@
 package villani.dev.preprocessing;
 
+import io.helidon.config.Config;
 import io.helidon.service.registry.Service;
 import villani.dev.vectorsearch.index.strategies.ivfpq.KMeans;
 import villani.dev.vectorsearch.index.strategies.ivfpq.ProductQuantizer;
@@ -24,16 +25,18 @@ import java.nio.file.Path;
 @Service.Singleton
 public class PreProcessorService {
 
-    private static final int K = 512;         // IVF cluster count
+    private static final int DEFAULT_K = 512;  // IVF cluster count
     private static final long SEED = 42L;
 
     private final DataReader dataReader;
     private final DataWriter dataWriter;
+    private final int K;
 
     @Service.Inject
-    public PreProcessorService(DataReader dataReader, DataWriter dataWriter) {
+    public PreProcessorService(DataReader dataReader, DataWriter dataWriter, Config config) {
         this.dataReader = dataReader;
         this.dataWriter = dataWriter;
+        this.K = config.get("app.vector-search.clusters").asInt().orElse(DEFAULT_K);
     }
 
     /**

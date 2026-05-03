@@ -20,7 +20,7 @@ public class IVFPQIndex implements VectorIndex {
 
     private final float[][] centroids;     // [K][14]
     private final int[][] idsByCluster;    // [K][count]
-    private final byte[][][] codesByCluster; // [K][count][7]
+    private final byte[][] codesByCluster; // [K][count*M] flat — avoids 3M byte[7] object headers
     private final byte[] labels;           // [N] — 0=legit, 1=fraud
     private final ProductQuantizer pq;
     private final int nprobe;
@@ -28,7 +28,7 @@ public class IVFPQIndex implements VectorIndex {
 
     public IVFPQIndex(float[][] centroids,
                       int[][] idsByCluster,
-                      byte[][][] codesByCluster,
+                      byte[][] codesByCluster,
                       byte[] labels,
                       ProductQuantizer pq,
                       int nprobe,
@@ -44,7 +44,6 @@ public class IVFPQIndex implements VectorIndex {
 
     @Override
     public int search(float[] query, int k, int[] neighbors, float[] distances) {
-        System.out.println("IVFPQIndex: Performing approximate K-NN search (IVF+PQ)");
         int K = centroids.length;
         int actualProbes = Math.min(nprobe, K);
         int actualCandidates = Math.min(candidates, k);
@@ -68,10 +67,10 @@ public class IVFPQIndex implements VectorIndex {
         for (int p = 0; p < actualProbes; p++) {
             int clusterIdx = centroidOrder[p];
             int[] ids = idsByCluster[clusterIdx];
-            byte[][] codes = codesByCluster[clusterIdx];
+            byte[] codes = codesByCluster[clusterIdx]; // flat: codes for vector i at offset i*M
 
             for (int i = 0; i < ids.length; i++) {
-                float approxDist = pq.adcDistance(adcTable, codes[i]);
+                float approxDist = pq.adcDistance(adcTable, codes, i * ProductQuantizer.M);
                 if (approxDist < distances[actualCandidates - 1]) {
                     insertSorted(neighbors, distances, actualCandidates, ids[i], approxDist);
                 }

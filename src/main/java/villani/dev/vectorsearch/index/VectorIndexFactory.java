@@ -63,7 +63,7 @@ public class VectorIndexFactory {
      */
     public VectorIndex create(float[][] centroids,
                               int[][] idsByCluster,
-                              byte[][][] codesByCluster,
+                              byte[][] codesByCluster,
                               float[][] vectors,
                               byte[] labels,
                               ProductQuantizer pq,
