@@ -13,10 +13,12 @@ import villani.dev.fraud.FraudCheckService;
 public class StatsEndpoint {
 
     private final FraudCheckService fraudCheckService;
+    private final PerformanceStats  performanceStats;
 
     @Service.Inject
-    StatsEndpoint(FraudCheckService fraudCheckService) {
+    StatsEndpoint(FraudCheckService fraudCheckService, PerformanceStats performanceStats) {
         this.fraudCheckService = fraudCheckService;
+        this.performanceStats  = performanceStats;
     }
 
     @Http.GET
@@ -25,8 +27,11 @@ public class StatsEndpoint {
         long total    = fraudCheckService.getTotalRequests();
         long grayZone = fraudCheckService.getGrayZoneRequests();
         double grayPct = total == 0 ? 0.0 : grayZone * 100.0 / total;
-        return String.format(
-            "{\"total\":%d,\"gray_zone\":%d,\"gray_zone_pct\":%.2f}",
-            total, grayZone, grayPct);
+
+        String timing = performanceStats.toJson();
+        // Merge gray-zone info into the timing JSON
+        String grayJson = String.format(
+            ",\"gray_zone\":{\"count\":%d,\"pct\":%.2f}", grayZone, grayPct);
+        return timing.substring(0, timing.length() - 1) + grayJson + "}";
     }
 }

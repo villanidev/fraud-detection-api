@@ -47,7 +47,7 @@ class FraudDetectionIntegrationTest {
         vectorStore.load(DATA_BIN);
 
         EmbeddingService embeddingService = new EmbeddingService();
-        fraudService = new FraudCheckService(embeddingService, vectorStore, config);
+        fraudService = new FraudCheckService(embeddingService, vectorStore, new villani.dev.health.PerformanceStats(), config);
         System.out.println("[INTEGRATION] VectorStore loaded OK.");
     }
 

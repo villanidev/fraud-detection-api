@@ -2,6 +2,7 @@ package villani.dev.fraud;
 
 import io.helidon.config.Config;
 import io.helidon.service.registry.Service;
+import villani.dev.health.PerformanceStats;
 import villani.dev.vectorsearch.embedding.EmbeddingService;
 import villani.dev.vectorsearch.retrieval.VectorStore;
 
@@ -10,14 +11,19 @@ import java.util.concurrent.atomic.AtomicLong;
 @Service.Singleton
 public class FraudCheckService {
 
+    private static final double SLOW_SEARCH_THRESHOLD_MS = 50.0;
+
     private final EmbeddingService embeddingService;
     private final VectorStore vectorStore;
+    private final PerformanceStats performanceStats;
     private final boolean debug;
 
     @Service.Inject
-    public FraudCheckService(EmbeddingService embeddingService, VectorStore vectorStore, Config config) {
-        this.embeddingService = embeddingService;
-        this.vectorStore = vectorStore;
+    public FraudCheckService(EmbeddingService embeddingService, VectorStore vectorStore,
+                             PerformanceStats performanceStats, Config config) {
+        this.embeddingService  = embeddingService;
+        this.vectorStore       = vectorStore;
+        this.performanceStats  = performanceStats;
         this.debug = config.get("app.fraud.debug").asBoolean().orElse(false);
     }
 
@@ -61,30 +67,40 @@ public class FraudCheckService {
         totalRequests.incrementAndGet();
         if (grayZone) grayZoneRequests.incrementAndGet();
 
-        double parseMs  = (t0 - requestStartNs) / 1_000_000.0;
-        double embedMs  = (t1 - t0) / 1_000_000.0;
-        double searchMs = (t2 - t1) / 1_000_000.0;
-        double totalMs  = (t3 - requestStartNs) / 1_000_000.0;
+        long parseNs  = t0 - requestStartNs;
+        long embedNs  = t1 - t0;
+        long searchNs = t2 - t1;
+        long totalNs  = t3 - requestStartNs;
 
-        if (debug) {
-            byte[] labels = vectorStore.getIndexLabels();
-            System.out.printf("[FRAUD] ── tx=%s  (parse=%.3fms  embed=%.3fms  search=%.3fms  total=%.3fms) ───%n",
-                tx.id(), parseMs, embedMs, searchMs, totalMs);
-            System.out.println("[FRAUD] Embedding:");
-            for (int i = 0; i < emb.length; i++) {
-                System.out.printf("[FRAUD]   [%2d] %-22s = % .6f%s%n",
-                    i, DIM_NAMES[i], emb[i],
-                    (emb[i] == -1f) ? "  (sentinel: no last_tx)" : "");
+        performanceStats.recordAll(parseNs, embedNs, searchNs, totalNs);
+
+        double searchMs = searchNs / 1_000_000.0;
+        if (debug || searchMs > SLOW_SEARCH_THRESHOLD_MS) {
+            double parseMs = parseNs / 1_000_000.0;
+            double embedMs = embedNs / 1_000_000.0;
+            double totalMs = totalNs / 1_000_000.0;
+            System.out.printf("[FRAUD] ── tx=%s  (parse=%.3fms  embed=%.3fms  search=%.3fms  total=%.3fms)%s%n",
+                tx.id(), parseMs, embedMs, searchMs, totalMs,
+                searchMs > SLOW_SEARCH_THRESHOLD_MS ? "  *** SLOW ***" : "");
+            if (debug) {
+                byte[] labels = vectorStore.getIndexLabels();
+                System.out.println("[FRAUD] Embedding:");
+                for (int i = 0; i < emb.length; i++) {
+                    System.out.printf("[FRAUD]   [%2d] %-22s = % .6f%s%n",
+                        i, DIM_NAMES[i], emb[i],
+                        (emb[i] == -1f) ? "  (sentinel: no last_tx)" : "");
+                }
+                System.out.println("[FRAUD] Nearest neighbors (k=5):");
+                for (int i = 0; i < neighbors.length; i++) {
+                    int id = neighbors[i];
+                    String labelStr = (id < 0) ? "EMPTY" : (labels[id] == 1 ? "FRAUD" : "legit");
+                    System.out.printf("[FRAUD]   [%d] id=%-8d dist=%.6f  → %s%n", i, id, distances[i], labelStr);
+                }
+                System.out.printf("[FRAUD] Result: %d/5 fraud  score=%.4f  approved=%b%n%n", fraudCount, score, approved);
             }
-            System.out.println("[FRAUD] Nearest neighbors (k=5):");
-            for (int i = 0; i < neighbors.length; i++) {
-                int id = neighbors[i];
-                String labelStr = (id < 0) ? "EMPTY" : (labels[id] == 1 ? "FRAUD" : "legit");
-                System.out.printf("[FRAUD]   [%d] id=%-8d dist=%.6f  → %s%n", i, id, distances[i], labelStr);
-            }
-            System.out.printf("[FRAUD] Result: %d/5 fraud  score=%.4f  approved=%b%n%n", fraudCount, score, approved);
         }
 
         return String.format("{\"approved\":%b,\"fraud_score\":%.4f}", approved, score);
     }
 }
+
