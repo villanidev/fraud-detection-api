@@ -17,10 +17,24 @@ public class ProductQuantizer {
     public static final int CODEBOOK_SIZE = 256;
 
     private final KMeans kMeans;
-    private float[][][] codebooks; // [M][256][SUB_D]
+    private float[][][] codebooks; // [M][256][SUB_D] — kept for serialization + encode()
+    private float[][] cbFlat;      // [M][CODEBOOK_SIZE * SUB_D] — interleaved, contiguous, cache-friendly
 
     public ProductQuantizer(KMeans kMeans) {
         this.kMeans = kMeans;
+    }
+
+    /** Converts the 3D codebook array into a flat 2D layout for cache-friendly access. */
+    private static float[][] toFlat(float[][][] cb) {
+        int M = cb.length;
+        int C = cb[0].length;
+        int D = cb[0][0].length;
+        float[][] flat = new float[M][C * D];
+        for (int m = 0; m < M; m++)
+            for (int c = 0; c < C; c++)
+                for (int d = 0; d < D; d++)
+                    flat[m][c * D + d] = cb[m][c][d];
+        return flat;
     }
 
     /**
@@ -39,6 +53,7 @@ public class ProductQuantizer {
             }
             codebooks[m] = kMeans.clusterSub(subVectors, CODEBOOK_SIZE, seed + m);
         }
+        cbFlat = toFlat(codebooks);
     }
 
     /**
@@ -68,16 +83,20 @@ public class ProductQuantizer {
 
     /**
      * In-place variant — writes into a pre-allocated table (avoids float[M][256] allocation per request).
+     * Uses the flat codebook layout [M][C*SUB_D] for cache-friendly sequential access
+     * (no pointer chasing through float[M][256][2]).
      * Use with a ThreadLocal-cached table for zero-allocation hot path.
      */
     public void buildAdcTable(float[] query, float[][] table) {
         for (int m = 0; m < M; m++) {
             float q0 = query[m * SUB_D];
             float q1 = query[m * SUB_D + 1];
+            float[] cb = cbFlat[m];
+            float[] row = table[m];
             for (int c = 0; c < CODEBOOK_SIZE; c++) {
-                float d0 = q0 - codebooks[m][c][0];
-                float d1 = q1 - codebooks[m][c][1];
-                table[m][c] = d0 * d0 + d1 * d1;
+                float d0 = q0 - cb[c * 2];
+                float d1 = q1 - cb[c * 2 + 1];
+                row[c] = d0 * d0 + d1 * d1;
             }
         }
     }
@@ -103,6 +122,7 @@ public class ProductQuantizer {
 
     public void setCodebooks(float[][][] codebooks) {
         this.codebooks = codebooks;
+        this.cbFlat = toFlat(codebooks);
     }
 
     /** Bytes needed to serialize codebooks: M * 256 * SUB_D * 4 bytes/float */

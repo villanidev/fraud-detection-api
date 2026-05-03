@@ -18,7 +18,10 @@ import java.util.Arrays;
  */
 public class IVFPQIndex implements VectorIndex {
 
-    private final float[][] centroids;     // [K][14]
+    private static final int DIMS = 14;
+
+    private final float[] centroidsFlat;   // [K * DIMS] — flat for sequential access, no pointer chasing
+    private final int K;
     private final int[][] idsByCluster;    // [K][count]
     private final byte[][] codesByCluster; // [K][count*M] flat — avoids 3M byte[7] object headers
     private final byte[] labels;           // [N] — 0=legit, 1=fraud
@@ -41,7 +44,11 @@ public class IVFPQIndex implements VectorIndex {
                       int nprobe,
                       int nprobeGray,
                       int candidates) {
-        this.centroids = centroids;
+        this.K = centroids.length;
+        // Flatten [K][14] → float[K*14] to eliminate pointer chasing in the hot centroid scan loop
+        this.centroidsFlat = new float[K * DIMS];
+        for (int c = 0; c < K; c++)
+            System.arraycopy(centroids[c], 0, centroidsFlat, c * DIMS, DIMS);
         this.idsByCluster = idsByCluster;
         this.codesByCluster = codesByCluster;
         this.labels = labels;
@@ -50,7 +57,6 @@ public class IVFPQIndex implements VectorIndex {
         this.nprobeGray = nprobeGray;
         this.candidates = candidates;
 
-        int K = centroids.length;
         this.tlCentroidDist  = ThreadLocal.withInitial(() -> new float[K]);
         this.tlCentroidOrder = ThreadLocal.withInitial(() -> new int[K]);
         this.tlAdcTable      = ThreadLocal.withInitial(() -> new float[ProductQuantizer.M][ProductQuantizer.CODEBOOK_SIZE]);
@@ -58,7 +64,6 @@ public class IVFPQIndex implements VectorIndex {
 
     @Override
     public int search(float[] query, int k, int[] neighbors, float[] distances) {
-        int K = centroids.length;
         int actualProbes = Math.min(nprobe, K);
         int actualCandidates = Math.min(candidates, k);
 
@@ -66,7 +71,7 @@ public class IVFPQIndex implements VectorIndex {
         float[]   centroidDist  = tlCentroidDist.get();
         int[]     centroidOrder = tlCentroidOrder.get();
         for (int c = 0; c < K; c++) {
-            centroidDist[c]  = squaredDistance(query, centroids[c]);
+            centroidDist[c]  = squaredDistanceFlat(query, centroidsFlat, c * DIMS);
             centroidOrder[c] = c;
         }
         partialSort(centroidOrder, centroidDist, actualProbes);
@@ -167,10 +172,10 @@ public class IVFPQIndex implements VectorIndex {
         return i + 1;
     }
 
-    private static float squaredDistance(float[] a, float[] b) {
+    private static float squaredDistanceFlat(float[] query, float[] flat, int offset) {
         float sum = 0.0f;
         for (int i = 0; i < 14; i++) {
-            float diff = a[i] - b[i];
+            float diff = query[i] - flat[offset + i];
             sum = Math.fma(diff, diff, sum);
         }
         return sum;
