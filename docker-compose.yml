@@ -8,6 +8,8 @@ services:
     depends_on:
       - api1
       - api2
+    networks:
+      - rinha
     deploy:
       resources:
         limits:
@@ -19,6 +21,8 @@ services:
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
       APP_VECTOR__SEARCH_RERANK: "true"
+    networks:
+      - rinha
     deploy:
       resources:
         limits:
@@ -30,8 +34,14 @@ services:
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
       APP_VECTOR__SEARCH_RERANK: "true"
+    networks:
+      - rinha
     deploy:
       resources:
         limits:
           cpus: "0.4"
           memory: "155MB"
+
+networks:
+  rinha:
+    driver: bridge
