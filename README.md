@@ -21,7 +21,7 @@ TransactionRequest
   score()          → regras determinísticas sobre os vizinhos encontrados
       │
       ▼
-  DecisionResponse { approved, score, rule_triggered }
+  DecisionResponse { approved, score }
 ```
 
 O índice (`data.bin`, ~170 MB) é gerado **uma vez** na sua máquina e baked na imagem Docker antes de publicar. Em produção a API nunca escreve em disco.
