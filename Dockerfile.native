@@ -1,0 +1,41 @@
+# 1st stage, build the app
+FROM ghcr.io/graalvm/graalvm-community:25.0.2 AS build
+
+WORKDIR /build
+
+# Instalar Maven de forma mais simples
+RUN microdnf install -y maven
+
+COPY pom.xml .
+RUN mvn dependency:go-offline
+
+COPY src src
+RUN mvn package -Pnative-image -DskipTests
+
+# 2nd stage, build the runtime image
+#funciona: imagem final tem 65MB
+#FROM gcr.io/distroless/cc-debian12
+
+#funciona: imagem final tem 62MB
+FROM gcr.io/distroless/base-debian12
+
+#funciona mas imagem final tem 116MB
+#FROM debian:12-slim
+
+WORKDIR /app
+
+# Copia a biblioteca libz do estágio de build para o runtime
+# O caminho no Oracle Linux (build) é /usr/lib64/libz.so.1
+# O caminho no Debian (distroless) deve ser /lib/x86_64-linux-gnu/
+COPY --from=build /usr/lib64/libz.so.1 /lib/x86_64-linux-gnu/libz.so.1
+
+COPY --from=build /build/target/fraud-detection-api /app/server
+
+# Resource files needed for the one-time preprocessing step
+COPY --from=build /build/src/main/resources/references.json.gz  /app/refs/references.json.gz
+COPY --from=build /build/src/main/resources/normalization.json   /app/refs/normalization.json
+COPY --from=build /build/src/main/resources/mcc_risk.json        /app/refs/mcc_risk.json
+
+EXPOSE 8080
+
+ENTRYPOINT ["/app/server"]

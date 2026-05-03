@@ -1,0 +1,20 @@
+# Build output (rebuilt inside Docker)
+target/
+.m2/
+
+# Git metadata
+.git/
+.gitignore
+
+# IDE
+.idea/
+*.iml
+
+# data.bin solto na raiz não é necessário no build context
+data.bin
+# Nota: data-output/ NÃO está aqui — Dockerfile.release precisa ler data-output/data.bin
+
+# Docs and tooling not needed in the image
+README.md
+requirements/
+nginx/

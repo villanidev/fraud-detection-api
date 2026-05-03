@@ -1,0 +1,4 @@
+ARG BUILD_IMAGE=fraud-api-builder:latest
+FROM ${BUILD_IMAGE}
+COPY data-output/data.bin /app/data.bin
+ENV DATA_BIN_PATH=/app/data.bin

@@ -1,0 +1,157 @@
+package villani.dev.vectorsearch.index.strategies.ivfpq;
+
+import villani.dev.vectorsearch.index.VectorIndex;
+
+import java.util.Arrays;
+
+/**
+ * Approximate Nearest Neighbor search via IVF (Inverted File Index) + PQ (Product Quantization).
+ *
+ * Search pipeline per query:
+ *   1. Find the nprobe nearest IVF centroids to the query (coarse quantization).
+ *   2. Precompute the ADC table: table[m][c] = dist²(query_sub_m, codebook[m][c]).
+ *   3. For each vector in the nprobe clusters, compute approximate distance via ADC table lookup.
+ *   4. Maintain top-candidates min-heap (insertion sort, candidates ≤ 50).
+ *   5. Return fraud count in top-k (caller decides k ≤ candidates).
+ *
+ * Plain Java — no DI annotations; created by VectorIndexFactory.
+ */
+public class IVFPQIndex implements VectorIndex {
+
+    private final float[][] centroids;     // [K][14]
+    private final int[][] idsByCluster;    // [K][count]
+    private final byte[][][] codesByCluster; // [K][count][7]
+    private final byte[] labels;           // [N] — 0=legit, 1=fraud
+    private final ProductQuantizer pq;
+    private final int nprobe;
+    private final int candidates;
+
+    public IVFPQIndex(float[][] centroids,
+                      int[][] idsByCluster,
+                      byte[][][] codesByCluster,
+                      byte[] labels,
+                      ProductQuantizer pq,
+                      int nprobe,
+                      int candidates) {
+        this.centroids = centroids;
+        this.idsByCluster = idsByCluster;
+        this.codesByCluster = codesByCluster;
+        this.labels = labels;
+        this.pq = pq;
+        this.nprobe = nprobe;
+        this.candidates = candidates;
+    }
+
+    @Override
+    public int search(float[] query, int k, int[] neighbors, float[] distances) {
+        int K = centroids.length;
+        int actualProbes = Math.min(nprobe, K);
+        int actualCandidates = Math.min(candidates, k);
+
+        // --- Step 1: Find nprobe nearest centroids ---
+        float[] centroidDist = new float[K];
+        int[] centroidOrder = new int[K];
+        for (int c = 0; c < K; c++) {
+            centroidDist[c] = squaredDistance(query, centroids[c]);
+            centroidOrder[c] = c;
+        }
+        partialSort(centroidOrder, centroidDist, actualProbes);
+
+        // --- Step 2: Precompute ADC table ---
+        float[][] adcTable = pq.buildAdcTable(query);
+
+        // --- Step 3+4: Scan clusters and maintain top-candidates ---
+        Arrays.fill(distances, Float.MAX_VALUE);
+        Arrays.fill(neighbors, -1);
+
+        for (int p = 0; p < actualProbes; p++) {
+            int clusterIdx = centroidOrder[p];
+            int[] ids = idsByCluster[clusterIdx];
+            byte[][] codes = codesByCluster[clusterIdx];
+
+            for (int i = 0; i < ids.length; i++) {
+                float approxDist = pq.adcDistance(adcTable, codes[i]);
+                if (approxDist < distances[actualCandidates - 1]) {
+                    insertSorted(neighbors, distances, actualCandidates, ids[i], approxDist);
+                }
+            }
+        }
+
+        // --- Step 5: Count fraud labels in top-k ---
+        int fraudCount = 0;
+        for (int i = 0; i < k; i++) {
+            if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
+        }
+        return fraudCount;
+    }
+
+    /**
+     * Inserts (id, dist) into sorted top-k arrays, maintaining ascending order.
+     * Linear shift — optimal for small k (≤50).
+     */
+    static void insertSorted(int[] neighbors, float[] distances, int k, int id, float dist) {
+        int pos = k - 1;
+        while (pos > 0 && distances[pos - 1] > dist) {
+            distances[pos] = distances[pos - 1];
+            neighbors[pos] = neighbors[pos - 1];
+            pos--;
+        }
+        distances[pos] = dist;
+        neighbors[pos] = id;
+    }
+
+    /**
+     * Partial sort: rearranges centroidOrder so the first 'top' elements are the
+     * indices of the 'top' smallest values in centroidDist. Uses quickselect O(K).
+     */
+    private static void partialSort(int[] order, float[] dist, int top) {
+        quickselect(order, dist, 0, order.length - 1, top);
+        // Sort just the top slice for deterministic probe order
+        for (int i = 1; i < top; i++) {
+            int oi = order[i];
+            float di = dist[oi];
+            int j = i - 1;
+            while (j >= 0 && dist[order[j]] > di) {
+                order[j + 1] = order[j];
+                j--;
+            }
+            order[j + 1] = oi;
+        }
+    }
+
+    private static void quickselect(int[] order, float[] dist, int left, int right, int k) {
+        if (left >= right) return;
+        int pivotIdx = partition(order, dist, left, right);
+        int rank = pivotIdx - left + 1;
+        if (rank == k) return;
+        if (k < rank) quickselect(order, dist, left, pivotIdx - 1, k);
+        else quickselect(order, dist, pivotIdx + 1, right, k - rank);
+    }
+
+    private static int partition(int[] order, float[] dist, int left, int right) {
+        float pivotDist = dist[order[right]];
+        int i = left - 1;
+        for (int j = left; j < right; j++) {
+            if (dist[order[j]] <= pivotDist) {
+                i++;
+                int tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+            }
+        }
+        int tmp = order[i + 1]; order[i + 1] = order[right]; order[right] = tmp;
+        return i + 1;
+    }
+
+    private static float squaredDistance(float[] a, float[] b) {
+        float sum = 0.0f;
+        for (int i = 0; i < 14; i++) {
+            float diff = a[i] - b[i];
+            sum = Math.fma(diff, diff, sum);
+        }
+        return sum;
+    }
+
+    @Override
+    public byte[] getLabels() {
+        return labels;
+    }
+}
