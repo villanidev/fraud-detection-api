@@ -44,6 +44,7 @@ public class IVFPQIndex implements VectorIndex {
 
     @Override
     public int search(float[] query, int k, int[] neighbors, float[] distances) {
+        System.out.println("IVFPQIndex: Performing approximate K-NN search (IVF+PQ)");
         int K = centroids.length;
         int actualProbes = Math.min(nprobe, K);
         int actualCandidates = Math.min(candidates, k);

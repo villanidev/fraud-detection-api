@@ -86,7 +86,8 @@ public class VectorIndexFactory {
         return base;
     }
 
-    public String getIndexType() { return indexType; }
-    public boolean isRerank()    { return rerank; }
+    public String getIndexType()  { return indexType; }
+    public boolean isRerank()     { return rerank; }
+    public boolean isBruteForce() { return "brute_force".equals(indexType); }
     public int getCandidates()   { return candidates; }
 }

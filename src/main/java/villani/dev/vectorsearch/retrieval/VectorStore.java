@@ -97,14 +97,22 @@ public class VectorStore {
                 for (int d = 0; d < DIMS; d++) centroids[c][d] = buf.getFloat();
             }
 
-            // --- Original vectors (N * 14 floats) --- mmap, don't read into heap
-            // vectorsOffset used by ReRankingVectorIndex; create a duplicate view for it
+            // --- Original vectors (N * 14 floats) ---
+            // Loaded into heap only for brute_force (testing only — not viable for 3M at runtime).
+            // For ivf_pq we skip into heap and use mmap for reranking.
             MappedByteBuffer vectorsMmap = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size());
             vectorsMmap.order(ByteOrder.BIG_ENDIAN);
 
-            // Advance buf past the vectors section — track position naturally
-            // (do NOT use vectorsOffset here; vectorsOffset is passed to ReRankingVectorIndex)
-            buf.position(buf.position() + N * DIMS * Float.BYTES);
+            float[][] vectors = null;
+            if (factory.isBruteForce()) {
+                vectors = new float[N][DIMS];
+                buf.position((int) vectorsOffset);
+                for (int i = 0; i < N; i++)
+                    for (int d = 0; d < DIMS; d++)
+                        vectors[i][d] = buf.getFloat();
+            } else {
+                buf.position(buf.position() + N * DIMS * Float.BYTES);
+            }
 
             // --- Labels (N bytes) ---
             byte[] labels = new byte[N];
@@ -128,9 +136,8 @@ public class VectorStore {
             pq.setCodebooks(codebooks);
 
             // --- Create index via factory ---
-            // Original vectors array not loaded into heap (passed null — BruteForce not viable for 3M)
             this.index = factory.create(centroids, idsByCluster, codesByCluster,
-                                        null, labels, pq,
+                                        vectors, labels, pq,
                                         vectorsMmap, vectorsOffset, N);
             this.norms = loadedNorms;
             this.mccRisk = loadedMcc;

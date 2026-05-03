@@ -22,6 +22,7 @@ public class BruteForceIndex implements VectorIndex {
 
     @Override
     public int search(float[] query, int k, int[] neighbors, float[] distances) {
+        System.out.println("BruteForceIndex: Performing exact K-NN search (O(N*D))");
         Arrays.fill(distances, Float.MAX_VALUE);
         Arrays.fill(neighbors, -1);
 
