@@ -1,0 +1,7 @@
+{
+  "participants": ["Thiago Villani"],
+  "social": ["https://github.com/villanidev"],
+  "source-code-repo": "https://github.com/villanidev/fraud-detection-api",
+  "stack": ["java", "helidon", "graalvm-native-image", "nginx"],
+  "open_to_work": true
+}
