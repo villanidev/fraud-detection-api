@@ -21,8 +21,10 @@ services:
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
       APP_VECTOR__SEARCH_NPROBE: "32"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "8"
       APP_VECTOR__SEARCH_CANDIDATES: "50"
       APP_VECTOR__SEARCH_RERANK: "false"
+      APP_FRAUD_DEBUG: "false"
     networks:
       - rinha
     deploy:
@@ -36,8 +38,10 @@ services:
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
       APP_VECTOR__SEARCH_NPROBE: "32"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "8"
       APP_VECTOR__SEARCH_CANDIDATES: "50"
       APP_VECTOR__SEARCH_RERANK: "false"
+      APP_FRAUD_DEBUG: "false"
     networks:
       - rinha
     deploy:

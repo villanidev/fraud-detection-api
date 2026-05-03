@@ -10,8 +10,8 @@ import java.util.Arrays;
  * Search pipeline per query:
  *   1. Find the nprobe nearest IVF centroids to the query (coarse quantization).
  *   2. Precompute the ADC table: table[m][c] = dist²(query_sub_m, codebook[m][c]).
- *   3. For each vector in the nprobe clusters, compute approximate distance via ADC table lookup.
- *   4. Maintain top-candidates min-heap (insertion sort, candidates ≤ 50).
+ *   3. Scan the first nprobeGray clusters. If fraudCount ∈ {0,1,4,5} → early exit (clear decision).
+ *   4. If gray zone (fraudCount ∈ {2,3}) → continue scanning up to nprobe clusters.
  *   5. Return fraud count in top-k (caller decides k ≤ candidates).
  *
  * Plain Java — no DI annotations; created by VectorIndexFactory.
@@ -24,6 +24,7 @@ public class IVFPQIndex implements VectorIndex {
     private final byte[] labels;           // [N] — 0=legit, 1=fraud
     private final ProductQuantizer pq;
     private final int nprobe;
+    private final int nprobeGray;  // fast-path probe count; early exit if decision is clear
     private final int candidates;
 
     // ThreadLocal scratch arrays — eliminates ~11KB of heap allocation per request.
@@ -38,6 +39,7 @@ public class IVFPQIndex implements VectorIndex {
                       byte[] labels,
                       ProductQuantizer pq,
                       int nprobe,
+                      int nprobeGray,
                       int candidates) {
         this.centroids = centroids;
         this.idsByCluster = idsByCluster;
@@ -45,6 +47,7 @@ public class IVFPQIndex implements VectorIndex {
         this.labels = labels;
         this.pq = pq;
         this.nprobe = nprobe;
+        this.nprobeGray = nprobeGray;
         this.candidates = candidates;
 
         int K = centroids.length;
@@ -72,10 +75,11 @@ public class IVFPQIndex implements VectorIndex {
         float[][] adcTable = tlAdcTable.get();
         pq.buildAdcTable(query, adcTable);
 
-        // --- Step 3+4: Scan clusters and maintain top-candidates ---
+        // --- Step 3+4: Scan clusters — early exit after nprobeGray if decision is clear ---
         Arrays.fill(distances, Float.MAX_VALUE);
         Arrays.fill(neighbors, -1);
 
+        int actualGray = Math.min(nprobeGray, actualProbes);
         for (int p = 0; p < actualProbes; p++) {
             int clusterIdx = centroidOrder[p];
             int[] ids = idsByCluster[clusterIdx];
@@ -86,6 +90,16 @@ public class IVFPQIndex implements VectorIndex {
                 if (approxDist < distances[actualCandidates - 1]) {
                     insertSorted(neighbors, distances, actualCandidates, ids[i], approxDist);
                 }
+            }
+
+            // After fast-path probes: count fraud in top-k and exit if decision is unambiguous
+            if (p == actualGray - 1) {
+                int fc = 0;
+                for (int i = 0; i < k; i++) {
+                    if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fc++;
+                }
+                if (fc <= 1 || fc >= k - 1) return fc;  // clear: 0/1 legit or 4/5 fraud
+                // gray zone (fc==2 or fc==3) — continue full scan
             }
         }
 

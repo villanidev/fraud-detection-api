@@ -30,11 +30,13 @@ public class VectorIndexFactory {
 
     private static final String DEFAULT_INDEX = "ivf_pq";
     private static final int DEFAULT_NPROBE = 16;
+    private static final int DEFAULT_NPROBE_GRAY = 8;
     private static final int DEFAULT_CANDIDATES = 50;
     private static final boolean DEFAULT_RERANK = true;
 
     private final String indexType;
     private final int nprobe;
+    private final int nprobeGray;
     private final int candidates;
     private final boolean rerank;
 
@@ -43,6 +45,7 @@ public class VectorIndexFactory {
         Config vs = config.get("app.vector-search");
         this.indexType  = vs.get("index").asString().orElse(DEFAULT_INDEX);
         this.nprobe     = vs.get("nprobe").asInt().orElse(DEFAULT_NPROBE);
+        this.nprobeGray = vs.get("nprobe-gray").asInt().orElse(DEFAULT_NPROBE_GRAY);
         this.candidates = vs.get("candidates").asInt().orElse(DEFAULT_CANDIDATES);
         this.rerank     = vs.get("rerank").asBoolean().orElse(DEFAULT_RERANK);
     }
@@ -74,7 +77,7 @@ public class VectorIndexFactory {
         VectorIndex base = switch (indexType) {
             case "brute_force" -> new BruteForceIndex(vectors, labels);
             case "ivf_pq" -> new IVFPQIndex(centroids, idsByCluster, codesByCluster,
-                                              labels, pq, nprobe, candidates);
+                                              labels, pq, nprobe, nprobeGray, candidates);
             case "hnsw" -> new HNSWIndex(labels);
             default -> throw new IllegalArgumentException(
                     "Unknown vector-search index: '" + indexType + "'. Valid values: brute_force, ivf_pq, hnsw");
@@ -89,5 +92,6 @@ public class VectorIndexFactory {
     public String getIndexType()  { return indexType; }
     public boolean isRerank()     { return rerank; }
     public boolean isBruteForce() { return "brute_force".equals(indexType); }
-    public int getCandidates()   { return candidates; }
+    public int getCandidates()    { return candidates; }
+    public int getNprobeGray()    { return nprobeGray; }
 }

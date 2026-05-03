@@ -1,19 +1,24 @@
 package villani.dev.fraud;
 
+import io.helidon.config.Config;
 import io.helidon.service.registry.Service;
 import villani.dev.vectorsearch.embedding.EmbeddingService;
 import villani.dev.vectorsearch.retrieval.VectorStore;
+
+import java.util.concurrent.atomic.AtomicLong;
 
 @Service.Singleton
 public class FraudCheckService {
 
     private final EmbeddingService embeddingService;
     private final VectorStore vectorStore;
+    private final boolean debug;
 
     @Service.Inject
-    public FraudCheckService(EmbeddingService embeddingService, VectorStore vectorStore) {
+    public FraudCheckService(EmbeddingService embeddingService, VectorStore vectorStore, Config config) {
         this.embeddingService = embeddingService;
         this.vectorStore = vectorStore;
+        this.debug = config.get("app.fraud.debug").asBoolean().orElse(false);
     }
 
     private static final String[] DIM_NAMES = {
@@ -23,7 +28,12 @@ public class FraudCheckService {
         "mcc_risk", "merchant_avg_amount"
     };
 
-    private static final boolean DEBUG = false;
+    // Gray-zone counters — fraudCount ∈ {2,3} where nprobe matters most
+    private final AtomicLong totalRequests = new AtomicLong();
+    private final AtomicLong grayZoneRequests = new AtomicLong();
+
+    public long getTotalRequests()    { return totalRequests.get(); }
+    public long getGrayZoneRequests() { return grayZoneRequests.get(); }
 
     public String checkScore(TransactionRequest tx) {
         return checkScore(tx, System.nanoTime());
@@ -43,16 +53,20 @@ public class FraudCheckService {
         long t2 = System.nanoTime();
 
         // 3 Score
+        boolean grayZone = fraudCount == 2 || fraudCount == 3;
         float score = fraudCount / 5.0f;
         boolean approved = score < 0.6f;
         long t3 = System.nanoTime();
+
+        totalRequests.incrementAndGet();
+        if (grayZone) grayZoneRequests.incrementAndGet();
 
         double parseMs  = (t0 - requestStartNs) / 1_000_000.0;
         double embedMs  = (t1 - t0) / 1_000_000.0;
         double searchMs = (t2 - t1) / 1_000_000.0;
         double totalMs  = (t3 - requestStartNs) / 1_000_000.0;
 
-        if (DEBUG) {
+        if (debug) {
             byte[] labels = vectorStore.getIndexLabels();
             System.out.printf("[FRAUD] ── tx=%s  (parse=%.3fms  embed=%.3fms  search=%.3fms  total=%.3fms) ───%n",
                 tx.id(), parseMs, embedMs, searchMs, totalMs);

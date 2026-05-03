@@ -14,5 +14,8 @@ app:
     index: "ivf_pq"
     clusters: 512
     nprobe: 16
+    nprobe-gray: 8
     candidates: 50
     rerank: true
+  fraud:
+    debug: false
