@@ -7,8 +7,10 @@ services:
     ports:
       - "9999:9999"
     depends_on:
-      - api1
-      - api2
+      api1:
+        condition: service_started
+      api2:
+        condition: service_started
     networks:
       - rinha
     deploy:
