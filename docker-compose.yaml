@@ -1,13 +1,17 @@
 services:
-  nginx:
-    image: nginx:alpine
+  lb:
+    #image: nginx:alpine
+    image: haproxy:alpine
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      #- ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     ports:
       - "9999:9999"
     depends_on:
-      - api1
-      - api2
+      api1:
+        condition: service_started
+      api2:
+        condition: service_started
     networks:
       - rinha
     deploy:
@@ -20,8 +24,8 @@ services:
     image: ${IMAGE:-villanidev/rinha-de-backend-2026:latest}
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
-      APP_VECTOR__SEARCH_NPROBE: "12"
-      APP_VECTOR__SEARCH_NPROBE__GRAY: "8"
+      APP_VECTOR__SEARCH_NPROBE: "64"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "32"
       APP_VECTOR__SEARCH_CANDIDATES: "50"
       APP_VECTOR__SEARCH_RERANK: "false"
       APP_FRAUD_DEBUG: "false"
@@ -37,8 +41,8 @@ services:
     image: ${IMAGE:-villanidev/rinha-de-backend-2026:latest}
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
-      APP_VECTOR__SEARCH_NPROBE: "12"
-      APP_VECTOR__SEARCH_NPROBE__GRAY: "8"
+      APP_VECTOR__SEARCH_NPROBE: "64"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "32"
       APP_VECTOR__SEARCH_CANDIDATES: "50"
       APP_VECTOR__SEARCH_RERANK: "false"
       APP_FRAUD_DEBUG: "false"
