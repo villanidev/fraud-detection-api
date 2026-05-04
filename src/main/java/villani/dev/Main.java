@@ -7,7 +7,9 @@ import io.helidon.service.registry.Services;
 import io.helidon.webserver.WebServer;
 import villani.dev.vectorsearch.retrieval.VectorStore;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 
 /**
  * Main class responsible for starting the service registry.
@@ -51,13 +53,35 @@ public class Main {
             return;
         }
 
+        // If SERVER_SOCKET_PATH is set, configure Helidon to bind to unix socket instead of TCP.
+        // Workaround for Helidon 4.4.1 bug (issue #11842): the config parser strips 7 chars from
+        // "unix:..." instead of 6, so "unix:/path" becomes "path" (missing leading slash).
+        // Using "unix://" + socketPath (which starts with /) produces "unix:///path" (8 chars),
+        // and after stripping 7 we get "/path" — correct.
+        String socketPath = System.getenv("SERVER_SOCKET_PATH");
+        if (socketPath != null && !socketPath.isBlank()) {
+            Files.deleteIfExists(Path.of(socketPath));
+            System.setProperty("server.bind-address", "unix://" + socketPath);
+        }
+
         ServiceRegistryManager.start(ApplicationBinding.create());
+
+        // Helidon creates the socket during start — make it world-writable so HAProxy
+        // (which may run as a different user) can connect to it.
+        if (socketPath != null && !socketPath.isBlank()) {
+            Files.setPosixFilePermissions(Path.of(socketPath),
+                    PosixFilePermissions.fromString("rwxrwxrwx"));
+        }
 
         VectorStore vectorStore = Services.get(VectorStore.class);
         System.out.println("Loading references (data.bin) ...");
         vectorStore.load(Path.of(System.getenv().getOrDefault("DATA_BIN_PATH", "data.bin")));
 
         WebServer webServer = Services.get(WebServer.class);
-        System.out.println("Fraud detection API started on port: " + webServer.port());
+        if (socketPath != null && !socketPath.isBlank()) {
+            System.out.println("Fraud detection API started on unix socket: " + socketPath);
+        } else {
+            System.out.println("Fraud detection API started on port: " + webServer.port());
+        }
     }
 }
