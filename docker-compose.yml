@@ -14,15 +14,15 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.1"
+          cpus: "0.2"
           memory: "30MB"
 
   api1:
     image: villanidev/rinha-de-backend-2026:20260504025938
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
-      APP_VECTOR__SEARCH_NPROBE: "16"
-      APP_VECTOR__SEARCH_NPROBE__GRAY: "8"
+      APP_VECTOR__SEARCH_NPROBE: "8"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "4"
       APP_VECTOR__SEARCH_CANDIDATES: "10"
       APP_VECTOR__SEARCH_RERANK: "false"
       APP_FRAUD_DEBUG: "false"
@@ -31,15 +31,15 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.45"
+          cpus: "0.4"
           memory: "160MB"
 
   api2:
     image: villanidev/rinha-de-backend-2026:20260504025938
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
-      APP_VECTOR__SEARCH_NPROBE: "16"
-      APP_VECTOR__SEARCH_NPROBE__GRAY: "8"
+      APP_VECTOR__SEARCH_NPROBE: "8"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "4"
       APP_VECTOR__SEARCH_CANDIDATES: "10"
       APP_VECTOR__SEARCH_RERANK: "false"
       APP_FRAUD_DEBUG: "false"
@@ -48,7 +48,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.45"
+          cpus: "0.4"
           memory: "160MB"
 
 networks:
