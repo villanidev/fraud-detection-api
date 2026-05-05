@@ -22,11 +22,11 @@ services:
           memory: "20MB"
 
   api1:
-    image: villanidev/rinha-de-backend-2026:k_4096
+    image: villanidev/rinha-de-backend-2026:20260505123443
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
       APP_VECTOR__SEARCH_NPROBE: "96"
-      APP_VECTOR__SEARCH_NPROBE__GRAY: "32"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "16"
       APP_VECTOR__SEARCH_CANDIDATES: "10"
       APP_VECTOR__SEARCH_RERANK: "false"
       APP_FRAUD_DEBUG: "false"
@@ -42,11 +42,11 @@ services:
           memory: "165MB"
 
   api2:
-    image: villanidev/rinha-de-backend-2026:k_4096
+    image: villanidev/rinha-de-backend-2026:20260505123443
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
       APP_VECTOR__SEARCH_NPROBE: "96"
-      APP_VECTOR__SEARCH_NPROBE__GRAY: "32"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "16"
       APP_VECTOR__SEARCH_CANDIDATES: "10"
       APP_VECTOR__SEARCH_RERANK: "false"
       APP_FRAUD_DEBUG: "false"
