@@ -22,7 +22,7 @@ services:
           memory: "30MB"
 
   api1:
-    image: villanidev/rinha-de-backend-2026:k_4096
+    image: villanidev/rinha-de-backend-2026:20260505025424
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
       APP_VECTOR__SEARCH_NPROBE: "12"
@@ -42,7 +42,7 @@ services:
           memory: "160MB"
 
   api2:
-    image: villanidev/rinha-de-backend-2026:k_4096
+    image: villanidev/rinha-de-backend-2026:20260505025424
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
       APP_VECTOR__SEARCH_NPROBE: "12"
