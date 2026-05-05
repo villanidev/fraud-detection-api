@@ -25,8 +25,8 @@ services:
     image: villanidev/rinha-de-backend-2026:20260505144451
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
-      APP_VECTOR__SEARCH_NPROBE: "16"
-      APP_VECTOR__SEARCH_NPROBE__GRAY: "4"
+      APP_VECTOR__SEARCH_NPROBE: "12"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "1"
       APP_VECTOR__SEARCH_CANDIDATES: "10"
       APP_VECTOR__SEARCH_RERANK: "false"
       APP_FRAUD_DEBUG: "false"
@@ -45,8 +45,8 @@ services:
     image: villanidev/rinha-de-backend-2026:20260505144451
     environment:
       APP_VECTOR__SEARCH_INDEX: ivf_pq
-      APP_VECTOR__SEARCH_NPROBE: "16"
-      APP_VECTOR__SEARCH_NPROBE__GRAY: "4"
+      APP_VECTOR__SEARCH_NPROBE: "12"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "1"
       APP_VECTOR__SEARCH_CANDIDATES: "10"
       APP_VECTOR__SEARCH_RERANK: "false"
       APP_FRAUD_DEBUG: "false"
