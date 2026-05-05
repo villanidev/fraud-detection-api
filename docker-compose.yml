@@ -19,7 +19,7 @@ services:
       resources:
         limits:
           cpus: "0.1"
-          memory: "30MB"
+          memory: "50MB"
 
   api1:
     image: villanidev/rinha-de-backend-2026:20260505144451
@@ -39,7 +39,7 @@ services:
       resources:
         limits:
           cpus: "0.45"
-          memory: "160MB"
+          memory: "140MB"
 
   api2:
     image: villanidev/rinha-de-backend-2026:20260505144451
@@ -59,7 +59,7 @@ services:
       resources:
         limits:
           cpus: "0.45"
-          memory: "160MB"
+          memory: "140MB"
 
 volumes:
   sockets:
