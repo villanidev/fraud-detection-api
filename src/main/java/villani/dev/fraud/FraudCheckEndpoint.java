@@ -23,18 +23,9 @@ public class FraudCheckEndpoint {
     @Http.Produces(MediaTypes.APPLICATION_JSON_VALUE)
     public String checkScore(ServerRequest req) {
         long requestStartNs = System.nanoTime();
-        try {
-            String body = req.content().as(String.class);
-            TransactionRequest tx = TransactionRequest.parse(body);
-            return fraudCheckService.checkScore(tx, requestStartNs);
-        } catch (Exception e) {
-            /*
-                HTTP error: peso 5  (Err × 5)
-                aprova fraud: peso 3  (FN × 3)
-                500 é matematicamente pior que deixar passar fraude
-            */
-            return "{\"approved\":true,\"fraud_score\":0.0000}";
-        }
+        String body = req.content().as(String.class);
+        TransactionRequest tx = TransactionRequest.parse(body);
+        return fraudCheckService.checkScore(tx, requestStartNs);
     }
 }
 

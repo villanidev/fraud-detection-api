@@ -19,6 +19,7 @@
 import http from "k6/http";
 import { check, sleep } from "k6";
 import { Counter, Rate, Trend } from "k6/metrics";
+import { SharedArray } from "k6/data";
 
 // ── Scoring constants (from EVALUATION.md) ─────────────────────────────────
 const K_LATENCY = 1000;
@@ -35,8 +36,12 @@ const K_DET = 1000,
 
 // ── Config ──────────────────────────────────────────────────────────────────
 const HOST = __ENV.HOST || "http://localhost:9999";
-const VUS = parseInt(__ENV.VUS || "50");
-const DURATION = __ENV.DURATION || "90s";
+//const VUS = parseInt(__ENV.VUS || "50");
+//const DURATION = __ENV.DURATION || "60s";
+//const TARGET_RPS = __ENV.RPS || 200; // Alvo de Requisições por Segundo
+const TOTAL_REQS = 54100;
+const RPS = 600; // Ajuste para a agressividade que você quer testar
+const DURATION = `${Math.ceil(TOTAL_REQS / RPS)}s`; // Calcula duração com base no RPS e total de requisições
 
 // ── Custom metrics ───────────────────────────────────────────────────────────
 const httpErrors = new Counter("http_errors");
@@ -44,7 +49,7 @@ const fraudCount = new Counter("fraud_responses");
 const legitCount = new Counter("legit_responses");
 
 // ── k6 options ───────────────────────────────────────────────────────────────
-export const options = {
+/*export const options = {
   stages: [
     { duration: "10s", target: 5 }, // warm-up
     { duration: "20s", target: VUS }, // ramp up
@@ -63,6 +68,50 @@ export const options = {
     http_req_failed: ["rate<0.15"], // avoid detection cutoff
   },
   summaryTrendStats: ["min", "avg", "med", "p(90)", "p(95)", "p(99)", "max"],
+};*/
+
+/*export const options = {
+  scenarios: {
+    sustained_load: {
+      // Mantém uma taxa constante de requisições por segundo (RPS)
+      executor: "constant-arrival-rate",
+      rate: RPS,
+      timeUnit: "1s",
+      duration: DURATION, // Calcula duração com base no RPS e total de requisições
+      preAllocatedVUs: 100,
+      maxVUs: 250,
+    },
+  },
+  thresholds: {
+    // Thresholds agressivos baseados no seu EVALUATION.md
+    "http_req_duration{expected_response:true}": [
+      "p(99)<2000", // Cutoff de erro crítico
+      "p(99)<50", // Meta para pontuação alta
+      "p(99)<10", // Meta para pontuação máxima
+    ],
+    http_req_failed: ["rate<0.15"],
+  },
+  summaryTrendStats: ["min", "avg", "med", "p(90)", "p(95)", "p(99)", "max"],
+};*/
+
+export const options = {
+  summaryTrendStats: ["p(99)"],
+  systemTags: ["status", "method"],
+  dns: {
+    ttl: "5m",
+    select: "roundRobin",
+  },
+  scenarios: {
+    default: {
+      executor: "ramping-arrival-rate",
+      startRate: 1,
+      timeUnit: "1s",
+      preAllocatedVUs: 100,
+      maxVUs: 250,
+      gracefulStop: "10s",
+      stages: [{ duration: "120s", target: 900 }],
+    },
+  },
 };
 
 // ── MCC codes present in the actual dataset ───────────────────────────────────
