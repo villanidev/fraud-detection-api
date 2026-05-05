@@ -29,10 +29,10 @@ import java.nio.MappedByteBuffer;
 public class VectorIndexFactory {
 
     private static final String DEFAULT_INDEX = "ivf_pq";
-    private static final int DEFAULT_NPROBE = 16;
+    private static final int DEFAULT_NPROBE = 24;
     private static final int DEFAULT_NPROBE_GRAY = 8;
     private static final int DEFAULT_CANDIDATES = 50;
-    private static final boolean DEFAULT_RERANK = true;
+    private static final boolean DEFAULT_RERANK = false;
 
     private final String indexType;
     private final int nprobe;

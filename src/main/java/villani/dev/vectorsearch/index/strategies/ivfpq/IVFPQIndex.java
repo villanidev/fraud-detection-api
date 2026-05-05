@@ -64,8 +64,8 @@ public class IVFPQIndex implements VectorIndex {
 
     @Override
     public int search(float[] query, int k, int[] neighbors, float[] distances) {
-        int actualProbes = Math.min(nprobe, K);
-        int actualCandidates = Math.min(candidates, k);
+        int actualProbes = nprobe; //Math.min(nprobe, K);
+        int actualCandidates = k; //Math.min(candidates, k);
 
         // --- Step 1: Find nprobe nearest centroids (reuse ThreadLocal scratch arrays) ---
         float[]   centroidDist  = tlCentroidDist.get();
