@@ -16,7 +16,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.15"
+          cpus: "0.1"
           memory: "50MB"
 
   api1:
@@ -25,7 +25,7 @@ services:
       SERVER_SOCKET_PATH: /sockets/api1.sock
       APP_VECTOR__SEARCH_INDEX: ivf_pq
       APP_VECTOR__SEARCH_NPROBE: "24"
-      APP_VECTOR__SEARCH_NPROBE__GRAY: "8"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "16"
       APP_VECTOR__SEARCH_CANDIDATES: "50"
       APP_VECTOR__SEARCH_RERANK: "false"
       APP_FRAUD_DEBUG: "false"
@@ -36,7 +36,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.425"
+          cpus: "0.45"
           memory: "150MB"
 
   api2:
@@ -45,7 +45,7 @@ services:
       SERVER_SOCKET_PATH: /sockets/api2.sock
       APP_VECTOR__SEARCH_INDEX: ivf_pq
       APP_VECTOR__SEARCH_NPROBE: "24"
-      APP_VECTOR__SEARCH_NPROBE__GRAY: "8"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "16"
       APP_VECTOR__SEARCH_CANDIDATES: "50"
       APP_VECTOR__SEARCH_RERANK: "false"
       APP_FRAUD_DEBUG: "false"
@@ -56,7 +56,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.425"
+          cpus: "0.45"
           memory: "150MB"
 
 volumes:
