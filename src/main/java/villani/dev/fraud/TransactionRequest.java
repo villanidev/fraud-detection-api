@@ -48,41 +48,41 @@ public record TransactionRequest(
 
     // ── public factory ───────────────────────────────────────────────────────
 
-    public static TransactionRequest parse(String j) {
-        String id = extractStr(j, 0, "id");
+    public static TransactionRequest parse(String json) {
+        String id = extractStr(json, 0, "id");
 
-        int txStart          = sectionStart(j, 0, "transaction");
-        float txAmount       = extractFloat(j, txStart, "amount");
-        int txInstallments   = extractInt(j, txStart, "installments");
-        String reqAtStr      = extractStr(j, txStart, "requested_at");
+        int txStart          = sectionStart(json, 0, "transaction");
+        float txAmount       = extractFloat(json, txStart, "amount");
+        int txInstallments   = extractInt(json, txStart, "installments");
+        String reqAtStr      = extractStr(json, txStart, "requested_at");
         int txHour           = tsHour(reqAtStr);
         int txDow            = tsDayOfWeek(reqAtStr);
         long txEpoch         = tsEpochSeconds(reqAtStr);
 
-        int custStart        = sectionStart(j, 0, "customer");
-        float custAvgAmount  = extractFloat(j, custStart, "avg_amount");
-        int custTxCount      = extractInt(j, custStart, "tx_count_24h");
+        int custStart        = sectionStart(json, 0, "customer");
+        float custAvgAmount  = extractFloat(json, custStart, "avg_amount");
+        int custTxCount      = extractInt(json, custStart, "tx_count_24h");
 
-        int merchStart       = sectionStart(j, 0, "merchant");
-        String merchId       = extractStr(j, merchStart, "id");
-        int mccCode          = extractIntStr(j, merchStart, "mcc");
-        float merchAvg       = extractFloat(j, merchStart, "avg_amount");
+        int merchStart       = sectionStart(json, 0, "merchant");
+        String merchId       = extractStr(json, merchStart, "id");
+        int mccCode          = extractIntStr(json, merchStart, "mcc");
+        float merchAvg       = extractFloat(json, merchStart, "avg_amount");
 
-        boolean unknownMerchant = !merchantIsKnown(j, custStart, "known_merchants", merchId);
+        boolean unknownMerchant = !merchantIsKnown(json, custStart, "known_merchants", merchId);
 
-        int termStart        = sectionStart(j, 0, "terminal");
-        boolean isOnline     = extractBool(j, termStart, "is_online");
-        boolean cardPresent  = extractBool(j, termStart, "card_present");
-        float kmFromHome     = extractFloat(j, termStart, "km_from_home");
+        int termStart        = sectionStart(json, 0, "terminal");
+        boolean isOnline     = extractBool(json, termStart, "is_online");
+        boolean cardPresent  = extractBool(json, termStart, "card_present");
+        float kmFromHome     = extractFloat(json, termStart, "km_from_home");
 
         LastTransactionData lastTx = null;
-        int ltIdx = j.indexOf("\"last_transaction\"");
+        int ltIdx = json.indexOf("\"last_transaction\"");
         if (ltIdx >= 0) {
-            int colon = j.indexOf(':', ltIdx) + 1;
-            while (j.charAt(colon) == ' ' || j.charAt(colon) == '\n' || j.charAt(colon) == '\r') colon++;
-            if (j.charAt(colon) == '{') {
-                long lastEpoch      = tsEpochSeconds(extractStr(j, colon, "timestamp"));
-                float kmFromCurrent = extractFloat(j, colon, "km_from_current");
+            int colon = json.indexOf(':', ltIdx) + 1;
+            while (json.charAt(colon) == ' ' || json.charAt(colon) == '\n' || json.charAt(colon) == '\r') colon++;
+            if (json.charAt(colon) == '{') {
+                long lastEpoch      = tsEpochSeconds(extractStr(json, colon, "timestamp"));
+                float kmFromCurrent = extractFloat(json, colon, "km_from_current");
                 lastTx = new LastTransactionData(lastEpoch, kmFromCurrent);
             }
         }
@@ -94,6 +94,95 @@ public record TransactionRequest(
                 new MerchantData(merchId, mccCode, merchAvg),
                 new TerminalData(isOnline, cardPresent, kmFromHome),
                 lastTx);
+    }
+
+    public static float[] toRequestArray(String json) {
+        float[] txArray = new float[14];
+
+        // ── TRANSACTION ──
+        int txStart = sectionStart(json, 0, "transaction");
+        float txAmount = extractFloat(json, txStart, "amount");
+        int txInstallments = extractInt(json, txStart, "installments");
+        String reqAt = extractStr(json, txStart, "requested_at");
+        int txHour = tsHour(reqAt);
+        int txDow = tsDayOfWeek(reqAt);
+        long txEpoch = tsEpochSeconds(reqAt);
+        // ── CUSTOMER ──
+        int custStart = sectionStart(json, 0, "customer");
+        float custAvgAmount = extractFloat(json, custStart, "avg_amount");
+        int custTxCount = extractInt(json, custStart, "tx_count_24h");
+        // ── MERCHANT ──
+        int merchStart = sectionStart(json, 0, "merchant");
+        String merchId = extractStr(json, merchStart, "id");
+        int mccCode = extractIntStr(json, merchStart, "mcc");
+        float merchAvg = extractFloat(json, merchStart, "avg_amount");
+        // ── unknown merchant ──
+        boolean unknownMerchant = !merchantIsKnown(json, custStart, "known_merchants", merchId);
+        // ── TERMINAL ──
+        int termStart = sectionStart(json, 0, "terminal");
+        boolean isOnline = extractBool(json, termStart, "is_online");
+        boolean cardPresent = extractBool(json, termStart, "card_present");
+        float kmFromHome = extractFloat(json, termStart, "km_from_home");
+        // ── LAST TRANSACTION (pode ser null) ──
+        int lastTransaction = json.indexOf("\"last_transaction\"");
+        long lastEpoch = 0;
+        float kmFromCurrent = 0;
+        if (lastTransaction >= 0) {
+            int colon = json.indexOf(':', lastTransaction) + 1;
+            while (json.charAt(colon) == ' ' || json.charAt(colon) == '\n' || json.charAt(colon) == '\r') colon++;
+            if (json.charAt(colon) == '{') {
+                lastEpoch = tsEpochSeconds(extractStr(json, colon, "timestamp"));
+                kmFromCurrent = extractFloat(json, colon, "km_from_current");
+            }
+        }
+
+        // [0] amount
+        txArray[0] = txAmount;
+
+        // [1] installments
+        txArray[1] = txInstallments;
+
+        // [2] amount_vs_avg
+        txArray[2] = custAvgAmount > 0 ? (txAmount / custAvgAmount) : 0f;
+
+        // [3] hour_of_day
+        txArray[3] = txHour;
+
+        // [4] day_of_week
+        txArray[4] = txDow;
+
+        // [5] minutes_since_last_tx, [6] km_from_last_tx
+        if (lastEpoch == 0 && kmFromCurrent == 0) {
+            txArray[5] = -1f;
+            txArray[6] = -1f;
+        } else {
+            long minutes = (txEpoch - lastEpoch) / 60L;  // positivo se tx é posterior
+            txArray[5] = minutes;
+            txArray[6] = kmFromCurrent;
+        }
+
+        // [7] km_from_home
+        txArray[7] = kmFromHome;
+
+        // [8] tx_count_24h
+        txArray[8] = custTxCount;
+
+        // [9] is_online
+        txArray[9] = isOnline ? 1f : 0f;
+
+        // [10] card_present
+        txArray[10] = cardPresent ? 1f : 0f;
+
+        // [11] unknown_merchant
+        txArray[11] = unknownMerchant ? 1f : 0f;
+
+        // [12] mcc_risk (índice direto, sem parse)
+        txArray[12] = mccCode;
+
+        // [13] merchant_avg_amount
+        txArray[13] = merchAvg;
+
+        return txArray;
     }
 
     // ── substring helpers ────────────────────────────────────────────────────

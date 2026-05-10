@@ -102,5 +102,21 @@ public class FraudCheckService {
 
         return String.format("{\"approved\":%b,\"fraud_score\":%.4f}", approved, score);
     }
+
+    public String checkScore(float[] txArray) {
+        // 1 Embedding
+        float[] emb = embeddingService.embed(txArray, vectorStore.getNormalization(), vectorStore.getMccRisk());
+
+        // 2 Busca K=5
+        int[] neighbors = new int[5];
+        float[] distances = new float[5];
+        int fraudCount = vectorStore.search(emb, 5, neighbors, distances);
+
+        // 3 Score
+        float score = fraudCount / 5.0f;
+        boolean approved = score < 0.6f;
+
+        return String.format("{\"approved\":%b,\"fraud_score\":%.4f}", approved, score);
+    }
 }
 

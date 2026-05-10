@@ -70,6 +70,43 @@ public class EmbeddingService {
         return embeddings;
     }
 
+    public float[] embed(float[] txArray, float[] norms, float[] mccRisk) {
+        // [0] amount
+        txArray[0] = clamp(txArray[0] / norms[0]);
+
+        // [1] installments
+        txArray[1] = clamp(txArray[1] / norms[1]);
+
+        // [2] amount_vs_avg
+        txArray[2] = clamp(txArray[2] / norms[2]);
+
+        // [3] hour_of_day
+        txArray[3] = txArray[3] / 23.0f;
+
+        // [4] day_of_week
+        txArray[4] = txArray[4] / 6.0f;
+
+        // [5] minutes_since_last_tx, [6] km_from_last_tx
+        if (txArray[5] != -1f && txArray[6] != -1f) {
+            txArray[5] = clamp(txArray[5] / norms[3]);
+            txArray[6] = clamp(txArray[6] / norms[4]);
+        }
+
+        // [7] km_from_home
+        txArray[7] = clamp(txArray[7] / norms[4]);
+
+        // [8] tx_count_24h
+        txArray[8] = clamp(txArray[8] / norms[5]);
+
+        // [12] mcc_risk (índice direto, sem parse)
+        txArray[12] = txArray[12] >= 0 && txArray[12] < mccRisk.length ? mccRisk[(int) txArray[12]] : 0.5f;
+
+        // [13] merchant_avg_amount
+        txArray[13] = clamp(txArray[13] / norms[6]);
+
+        return txArray;
+    }
+
     private static float mccRiskFor(float[] mccRisk, int mccCode) {
         if (mccCode >= 0 && mccCode < mccRisk.length) return mccRisk[mccCode];
         return 0.5f;

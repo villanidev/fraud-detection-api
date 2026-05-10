@@ -22,10 +22,9 @@ public class FraudCheckEndpoint {
     @Http.POST
     @Http.Produces(MediaTypes.APPLICATION_JSON_VALUE)
     public String checkScore(ServerRequest req) {
-        long requestStartNs = System.nanoTime();
         String body = req.content().as(String.class);
-        TransactionRequest tx = TransactionRequest.parse(body);
-        return fraudCheckService.checkScore(tx, requestStartNs);
+        float[] txArray = TransactionRequest.toRequestArray(body);
+        return fraudCheckService.checkScore(txArray);
     }
 }
 
