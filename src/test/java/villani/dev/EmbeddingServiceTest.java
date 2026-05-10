@@ -43,7 +43,7 @@ class EmbeddingServiceTest {
             "tx-1329056812",
             new TransactionRequest.TransactionData(
                 41.12f, 2,
-                18, 3,          // 2026-03-11T18:45:53Z → hour=18, dow=3 (Wednesday)
+                18, 2,          // 2026-03-11T18:45:53Z → hour=18, dow=2 (Wednesday)
                 1774454753L     // epoch seconds (unused: last_tx=null)
             ),
             new TransactionRequest.CustomerData(
@@ -78,7 +78,7 @@ class EmbeddingServiceTest {
         assertDim(emb, 2,  0.05f,   "amount_vs_avg");
         // [3] hour_of_day = 18 / 23
         assertDim(emb, 3,  0.7826f, "hour_of_day");
-        // [4] day_of_week — 2026-03-11 is Wednesday (getValue=3), (3-1)/6 = 0.3333
+        // [4] day_of_week — 2026-03-11 is Wednesday (getValue=2), 2/6 = 0.3333
         assertDim(emb, 4,  0.3333f, "day_of_week");
         // [5] sentinel -1 (no last_transaction)
         assertDim(emb, 5, -1f,      "minutes_since_last_tx (sentinel)");
@@ -153,7 +153,7 @@ class EmbeddingServiceTest {
             "tx-test",
             new TransactionRequest.TransactionData(
                 50000f, 15,    // amount > max → clamped to 1.0; installments > max → clamped
-                0, 1,          // 2026-01-05T00:00:00Z → hour=0, dow=1 (Monday)
+                0, 0,          // 2026-01-05T00:00:00Z → hour=0, dow=0 (Monday)
                 1767571200L    // epoch seconds (unused: last_tx=null)
             ),
             new TransactionRequest.CustomerData(100f, 25, true),  // MERC-ZZZ not in [MERC-AAA] → unknown

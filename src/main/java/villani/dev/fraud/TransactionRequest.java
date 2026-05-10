@@ -87,6 +87,7 @@ public record TransactionRequest(
             }
         }
 
+        //TODO flatten this structure
         return new TransactionRequest(id,
                 new TransactionData(txAmount, txInstallments, txHour, txDow, txEpoch),
                 new CustomerData(custAvgAmount, custTxCount, unknownMerchant),
@@ -169,9 +170,23 @@ public record TransactionRequest(
         int m = digits(s, 5, 7);
         int d = digits(s, 8, 10);
         final int[] t = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+        // ajuste para anos bissextos
         if (m < 3) y--;
+
         int dow = (y + y / 4 - y / 100 + y / 400 + t[m - 1] + d) % 7;
-        return dow == 0 ? 7 : dow;
+        //return dow == 0 ? 7 : dow;
+        // Zeller: 0=Sáb, 1=Dom, 2=Seg, 3=Ter, 4=Qua, 5=Qui, 6=Sex
+        // Rinha: 0=Seg, 1=Ter, 2=Qua, 3=Qui, 4=Sex, 5=Sáb, 6=Dom
+        return switch (dow) {
+            case 1 -> 0; // Seg -> 0
+            case 2 -> 1; // Ter -> 1
+            case 3 -> 2; // Qua -> 2
+            case 4 -> 3; // Qui -> 3
+            case 5 -> 4; // Sex -> 4
+            case 6 -> 5; // Sáb -> 5
+            case 0 -> 6; // Dom -> 6
+            default -> 0;
+        };
     }
 
     static long tsEpochSeconds(String s) {

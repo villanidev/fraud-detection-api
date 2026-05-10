@@ -122,7 +122,7 @@ public class ReRankingVectorIndex implements VectorIndex {
     }
 
     private static float squaredDistance(float[] a, float[] b) {
-        float sum = 0;
+        float sum = 0.0f;
         for (int i = 0; i < DIMS; i++) {
             float diff = a[i] - b[i];
             sum += diff * diff;

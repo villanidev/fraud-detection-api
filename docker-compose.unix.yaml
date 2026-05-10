@@ -24,10 +24,10 @@ services:
     environment:
       SERVER_SOCKET_PATH: /sockets/api1.sock
       APP_VECTOR__SEARCH_INDEX: ivf_pq
-      APP_VECTOR__SEARCH_NPROBE: "16"
-      APP_VECTOR__SEARCH_NPROBE__GRAY: "4"
+      APP_VECTOR__SEARCH_NPROBE: "24"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "24"
       APP_VECTOR__SEARCH_CANDIDATES: "50"
-      APP_VECTOR__SEARCH_RERANK: "false"
+      APP_VECTOR__SEARCH_RERANK: "true"
       APP_FRAUD_DEBUG: "false"
     volumes:
       - sockets:/sockets
@@ -44,10 +44,10 @@ services:
     environment:
       SERVER_SOCKET_PATH: /sockets/api2.sock
       APP_VECTOR__SEARCH_INDEX: ivf_pq
-      APP_VECTOR__SEARCH_NPROBE: "16"
-      APP_VECTOR__SEARCH_NPROBE__GRAY: "4"
+      APP_VECTOR__SEARCH_NPROBE: "24"
+      APP_VECTOR__SEARCH_NPROBE__GRAY: "24"
       APP_VECTOR__SEARCH_CANDIDATES: "50"
-      APP_VECTOR__SEARCH_RERANK: "false"
+      APP_VECTOR__SEARCH_RERANK: "true"
       APP_FRAUD_DEBUG: "false"
     volumes:
       - sockets:/sockets

@@ -64,12 +64,12 @@ public class IVFPQIndex implements VectorIndex {
 
     @Override
     public int search(float[] query, int k, int[] neighbors, float[] distances) {
-        int actualProbes = nprobe; //Math.min(nprobe, K);
-        int actualCandidates = k; //Math.min(candidates, k);
+        int actualProbes = Math.min(nprobe, K);
+        int actualCandidates = Math.min(candidates, k);
 
         // --- Step 1: Find nprobe nearest centroids (reuse ThreadLocal scratch arrays) ---
-        float[]   centroidDist  = tlCentroidDist.get();
-        int[]     centroidOrder = tlCentroidOrder.get();
+        float[] centroidDist  = tlCentroidDist.get();
+        int[] centroidOrder = tlCentroidOrder.get();
         for (int c = 0; c < K; c++) {
             centroidDist[c]  = squaredDistanceFlat(query, centroidsFlat, c * DIMS);
             centroidOrder[c] = c;
@@ -174,7 +174,7 @@ public class IVFPQIndex implements VectorIndex {
 
     private static float squaredDistanceFlat(float[] query, float[] flat, int offset) {
         float sum = 0.0f;
-        for (int i = 0; i < 14; i++) {
+        for (int i = 0; i < DIMS; i++) {
             float diff = query[i] - flat[offset + i];
             sum = Math.fma(diff, diff, sum);
         }

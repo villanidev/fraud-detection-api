@@ -12,6 +12,7 @@ import java.util.Arrays;
  */
 public class BruteForceIndex implements VectorIndex {
 
+    private static final int DIMS = 14;
     private final float[][] vectors;
     private final byte[] labels;
 
@@ -22,7 +23,6 @@ public class BruteForceIndex implements VectorIndex {
 
     @Override
     public int search(float[] query, int k, int[] neighbors, float[] distances) {
-        System.out.println("BruteForceIndex: Performing exact K-NN search (O(N*D))");
         Arrays.fill(distances, Float.MAX_VALUE);
         Arrays.fill(neighbors, -1);
 
@@ -56,8 +56,8 @@ public class BruteForceIndex implements VectorIndex {
     }
 
     private static float squaredDistance(float[] a, float[] b) {
-        float sum = 0;
-        for (int i = 0; i < 14; i++) {
+        float sum = 0.0f;
+        for (int i = 0; i < DIMS; i++) {
             float diff = a[i] - b[i];
             sum += diff * diff;
         }

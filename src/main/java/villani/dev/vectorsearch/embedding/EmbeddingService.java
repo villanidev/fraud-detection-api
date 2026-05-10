@@ -32,8 +32,8 @@ public class EmbeddingService {
         // [3] hour_of_day  (0–23 UTC)
         embeddings[3] = tx.transaction().hour() / 23.0f;
 
-        // [4] day_of_week  Mon=1 … Sun=7 (ISO)
-        embeddings[4] = (tx.transaction().dayOfWeek() - 1) / 6.0f;
+        // [4] day_of_week  (Mon=0 … Sun=6)
+        embeddings[4] = tx.transaction().dayOfWeek() / 6.0f;
 
         // [5] minutes_since_last_tx, [6] km_from_last_tx — sentinel -1 when null
         TransactionRequest.LastTransactionData last = tx.last_transaction();
