@@ -27,7 +27,7 @@ import static org.hamcrest.Matchers.*;
  */
 class FraudDetectionIntegrationTest {
 
-    private static final Path DATA_BIN = Path.of("data.bin");
+    private static final Path DATA_BIN = Path.of("data-output/data.bin");
     private static FraudCheckService fraudService;
     private static VectorStore vectorStore;
     private static boolean available;

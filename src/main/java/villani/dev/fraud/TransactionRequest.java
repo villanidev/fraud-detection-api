@@ -156,7 +156,8 @@ public record TransactionRequest(
             txArray[5] = -1f;
             txArray[6] = -1f;
         } else {
-            long minutes = (txEpoch - lastEpoch) / 60L;  // positivo se tx é posterior
+            //TODO possivel bug
+            long minutes = Math.max(0, (txEpoch - lastEpoch) / 60L);
             txArray[5] = minutes;
             txArray[6] = kmFromCurrent;
         }

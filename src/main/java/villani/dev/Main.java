@@ -7,6 +7,7 @@ import io.helidon.service.registry.Services;
 import io.helidon.webserver.WebServer;
 import villani.dev.vectorsearch.retrieval.VectorStore;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -41,15 +42,7 @@ public class Main {
         LogConfig.configureRuntime();
 
         if (args.length > 0 && "--preprocess".equals(args[0])) {
-            ServiceRegistryManager.start(ApplicationBinding.create());
-            var env = System.getenv();
-            Services.get(villani.dev.preprocessing.PreProcessorService.class)
-                    .ingestReferences(
-                            Path.of(env.getOrDefault("REFERENCES_PATH",   "src/main/resources/references.json.gz")),
-                            Path.of(env.getOrDefault("NORMALIZATION_PATH", "src/main/resources/normalization.json")),
-                            Path.of(env.getOrDefault("MCC_RISK_PATH",      "src/main/resources/mcc_risk.json")),
-                            Path.of(env.getOrDefault("DATA_BIN_PATH",      "data.bin")));
-            System.exit(0);
+            runPreProcessor();
             return;
         }
 
@@ -61,6 +54,7 @@ public class Main {
         String socketPath = System.getenv("SERVER_SOCKET_PATH");
         if (socketPath != null && !socketPath.isBlank()) {
             Files.deleteIfExists(Path.of(socketPath));
+            // Make Helidon bing do uds
             System.setProperty("server.bind-address", "unix://" + socketPath);
         }
 
@@ -83,5 +77,17 @@ public class Main {
         } else {
             System.out.println("Fraud detection API started on port: " + webServer.port());
         }
+    }
+
+    private static void runPreProcessor() throws IOException {
+        ServiceRegistryManager.start(ApplicationBinding.create());
+        var env = System.getenv();
+        Services.get(villani.dev.preprocessing.PreProcessorService.class)
+                .ingestReferences(
+                        Path.of(env.getOrDefault("REFERENCES_PATH",   "src/main/resources/references.json.gz")),
+                        Path.of(env.getOrDefault("NORMALIZATION_PATH", "src/main/resources/normalization.json")),
+                        Path.of(env.getOrDefault("MCC_RISK_PATH",      "src/main/resources/mcc_risk.json")),
+                        Path.of(env.getOrDefault("DATA_BIN_PATH",      "data.bin")));
+        System.exit(0);
     }
 }
