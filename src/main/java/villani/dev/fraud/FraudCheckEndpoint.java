@@ -21,9 +21,11 @@ public class FraudCheckEndpoint {
 
     @Http.POST
     @Http.Produces(MediaTypes.APPLICATION_JSON_VALUE)
-    public String checkScore(ServerRequest req) {
-        String body = req.content().as(String.class);
+    public String checkScore(@Http.Entity String body) {
+        //String body = req.content().as(String.class);
         float[] txArray = TransactionRequest.toRequestArray(body);
+        //byte[] bodyBytes = req.content().as(byte[].class);
+        //float[] txArray = TransactionRequestBytes.toRequestArray(bodyBytes);
         return fraudCheckService.checkScore(txArray);
     }
 }

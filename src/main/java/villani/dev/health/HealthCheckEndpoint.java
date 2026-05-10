@@ -12,7 +12,7 @@ import io.helidon.webserver.http.RestServer;
 public class HealthCheckEndpoint {
 
     @Http.GET
-    @RestServer.Status(Status.OK_200_CODE)
+    @RestServer.Status(Status.NO_CONTENT_204_CODE)
     public void health() {
         //nao retorna nada além do status code
     }
