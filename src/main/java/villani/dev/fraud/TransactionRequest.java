@@ -107,22 +107,27 @@ public record TransactionRequest(
         int txHour = tsHour(reqAt);
         int txDow = tsDayOfWeek(reqAt);
         long txEpoch = tsEpochSeconds(reqAt);
+
         // ── CUSTOMER ──
         int custStart = sectionStart(json, 0, "customer");
         float custAvgAmount = extractFloat(json, custStart, "avg_amount");
         int custTxCount = extractInt(json, custStart, "tx_count_24h");
+
         // ── MERCHANT ──
         int merchStart = sectionStart(json, 0, "merchant");
         String merchId = extractStr(json, merchStart, "id");
         int mccCode = extractIntStr(json, merchStart, "mcc");
         float merchAvg = extractFloat(json, merchStart, "avg_amount");
+
         // ── unknown merchant ──
         boolean unknownMerchant = !merchantIsKnown(json, custStart, "known_merchants", merchId);
+
         // ── TERMINAL ──
         int termStart = sectionStart(json, 0, "terminal");
         boolean isOnline = extractBool(json, termStart, "is_online");
         boolean cardPresent = extractBool(json, termStart, "card_present");
         float kmFromHome = extractFloat(json, termStart, "km_from_home");
+
         // ── LAST TRANSACTION (pode ser null) ──
         int lastTransaction = json.indexOf("\"last_transaction\"");
         long lastEpoch = 0;

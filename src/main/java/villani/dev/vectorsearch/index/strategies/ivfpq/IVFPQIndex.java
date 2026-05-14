@@ -71,7 +71,7 @@ public class IVFPQIndex implements VectorIndex {
         float[] centroidDist  = tlCentroidDist.get();
         int[] centroidOrder = tlCentroidOrder.get();
         for (int c = 0; c < K; c++) {
-            centroidDist[c]  = squaredDistanceFlat(query, centroidsFlat, c * DIMS);
+            centroidDist[c]  = squaredDistance(query, centroidsFlat, c * DIMS);
             centroidOrder[c] = c;
         }
         partialSort(centroidOrder, centroidDist, actualProbes);
@@ -172,7 +172,7 @@ public class IVFPQIndex implements VectorIndex {
         return i + 1;
     }
 
-    private static float squaredDistanceFlat(float[] query, float[] flat, int offset) {
+    private static float squaredDistance(float[] query, float[] flat, int offset) {
         float sum = 0.0f;
         for (int i = 0; i < DIMS; i++) {
             float diff = query[i] - flat[offset + i];

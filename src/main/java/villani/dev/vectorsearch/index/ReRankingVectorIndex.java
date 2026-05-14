@@ -125,7 +125,7 @@ public class ReRankingVectorIndex implements VectorIndex {
         float sum = 0.0f;
         for (int i = 0; i < DIMS; i++) {
             float diff = a[i] - b[i];
-            sum += diff * diff;
+            sum = Math.fma(diff, diff, sum);
         }
         return sum;
     }

@@ -18,25 +18,25 @@ public class FraudCheckService {
     private final PerformanceStats performanceStats;
     private final boolean debug;
 
-    @Service.Inject
-    public FraudCheckService(EmbeddingService embeddingService, VectorStore vectorStore,
-                             PerformanceStats performanceStats, Config config) {
-        this.embeddingService  = embeddingService;
-        this.vectorStore       = vectorStore;
-        this.performanceStats  = performanceStats;
-        this.debug = config.get("app.fraud.debug").asBoolean().orElse(false);
-    }
-
     private static final String[] DIM_NAMES = {
-        "amount", "installments", "amount_vs_avg", "hour_of_day", "day_of_week",
-        "minutes_since_last_tx", "km_from_last_tx", "km_from_home",
-        "tx_count_24h", "is_online", "card_present", "unknown_merchant",
-        "mcc_risk", "merchant_avg_amount"
+            "amount", "installments", "amount_vs_avg", "hour_of_day", "day_of_week",
+            "minutes_since_last_tx", "km_from_last_tx", "km_from_home",
+            "tx_count_24h", "is_online", "card_present", "unknown_merchant",
+            "mcc_risk", "merchant_avg_amount"
     };
 
     // Gray-zone counters — fraudCount ∈ {2,3} where nprobe matters most
     private final AtomicLong totalRequests = new AtomicLong();
     private final AtomicLong grayZoneRequests = new AtomicLong();
+
+    @Service.Inject
+    public FraudCheckService(EmbeddingService embeddingService, VectorStore vectorStore,
+                             PerformanceStats performanceStats, Config config) {
+        this.embeddingService = embeddingService;
+        this.vectorStore = vectorStore;
+        this.performanceStats = performanceStats;
+        this.debug = config.get("app.fraud.debug").asBoolean().orElse(false);
+    }
 
     public long getTotalRequests()    { return totalRequests.get(); }
     public long getGrayZoneRequests() { return grayZoneRequests.get(); }
