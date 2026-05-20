@@ -14,7 +14,7 @@ import java.util.stream.IntStream;
  */
 public class KMeans {
 
-    private static final int ITERATIONS = 50;
+    private static final int ITERATIONS = 25;
 
     /**
      * Clusters vectors into K centroids using K-Means++ initialization.

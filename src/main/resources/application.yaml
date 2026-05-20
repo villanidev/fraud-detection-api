@@ -12,7 +12,7 @@ app:
   vector-search:
     #index: "brute_force"
     index: "ivf_pq"
-    clusters: 1024
+    clusters: 1792
     nprobe: 4
     nprobe-gray: 2
     candidates: 10
