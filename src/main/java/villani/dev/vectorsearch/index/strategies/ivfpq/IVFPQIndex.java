@@ -137,7 +137,7 @@ public class IVFPQIndex implements VectorIndex {
      */
     private static void partialSort(int[] order, float[] dist, int top) {
         quickselect(order, dist, 0, order.length - 1, top);
-        // Sort just the top slice for deterministic probe order
+        // Ordena os top elementos para manter o determinismo
         for (int i = 1; i < top; i++) {
             int oi = order[i];
             float di = dist[oi];
@@ -151,25 +151,42 @@ public class IVFPQIndex implements VectorIndex {
     }
 
     private static void quickselect(int[] order, float[] dist, int left, int right, int k) {
-        if (left >= right) return;
-        int pivotIdx = partition(order, dist, left, right);
-        int rank = pivotIdx - left + 1;
-        if (rank == k) return;
-        if (k < rank) quickselect(order, dist, left, pivotIdx - 1, k);
-        else quickselect(order, dist, pivotIdx + 1, right, k - rank);
+        while (left < right) {
+            int pivotIdx = medianOfThreePartition(order, dist, left, right);
+            int rank = pivotIdx - left + 1;
+            if (rank == k) return;
+            if (k < rank) {
+                right = pivotIdx - 1;
+            } else {
+                left = pivotIdx + 1;
+                k -= rank;
+            }
+        }
     }
 
-    private static int partition(int[] order, float[] dist, int left, int right) {
+    private static int medianOfThreePartition(int[] order, float[] dist, int left, int right) {
+        int mid = (left + right) >>> 1;
+        // Coloca a mediana dos três (left, mid, right) na posição right
+        if (dist[order[left]] > dist[order[mid]]) swap(order, left, mid);
+        if (dist[order[left]] > dist[order[right]]) swap(order, left, right);
+        if (dist[order[mid]] > dist[order[right]]) swap(order, mid, right);
+        // O pivô agora está em order[right] (o maior dos três medianos)
         float pivotDist = dist[order[right]];
         int i = left - 1;
         for (int j = left; j < right; j++) {
             if (dist[order[j]] <= pivotDist) {
                 i++;
-                int tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+                swap(order, i, j);
             }
         }
-        int tmp = order[i + 1]; order[i + 1] = order[right]; order[right] = tmp;
+        swap(order, i + 1, right);
         return i + 1;
+    }
+
+    private static void swap(int[] arr, int i, int j) {
+        int tmp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = tmp;
     }
 
     private static float squaredDistance(float[] query, float[] flat, int offset) {

@@ -36,12 +36,12 @@ public class ReRankingVectorIndex implements VectorIndex {
     private final int candidates;
 
     // Thread pool dedicado para leitura de arquivos (evita pinning)
-    private static final ExecutorService ioPool = Executors.newFixedThreadPool(2,
+    /*private static final ExecutorService ioPool = Executors.newFixedThreadPool(4,
             r -> {
                 Thread t = new Thread(r, "vector-io");
                 t.setDaemon(true);
                 return t;
-            });
+            });*/
 
     // Scratch buffers usados no hot path da busca (apenas cálculo, sem I/O)
     private final ThreadLocal<int[]>   tlCoarseNeighbors;
@@ -84,7 +84,9 @@ public class ReRankingVectorIndex implements VectorIndex {
                 continue;
             }
             try {
-                readVectorAsync(id, vec);  // bloqueia a virtual thread sem pinning
+                //readVectorAsync(id, vec);  // bloqueia a virtual thread sem pinning
+                float[] readVec = readVector(id); // chamada direta, sem pool
+                System.arraycopy(readVec, 0, vec, 0, DIMS);
             } catch (Exception e) {
                 exactDists[i] = Float.MAX_VALUE;
                 continue;
@@ -110,7 +112,7 @@ public class ReRankingVectorIndex implements VectorIndex {
     }
 
     /** Lê o vetor `id` do disco usando o pool de I/O, bloqueando a thread virtual sem pinning. */
-    private void readVectorAsync(int id, float[] out) throws Exception {
+    /*private void readVectorAsync(int id, float[] out) throws Exception {
         long offset = vectorsOffset + (long) id * VECTOR_BYTES;
         Future<float[]> future = ioPool.submit(() -> {
             ByteBuffer buf = ByteBuffer.allocateDirect(VECTOR_BYTES);
@@ -131,6 +133,22 @@ public class ReRankingVectorIndex implements VectorIndex {
         // future.get() suspende a virtual thread sem prender a carrier
         float[] read = future.get();
         System.arraycopy(read, 0, out, 0, DIMS);
+    }*/
+
+    private float[] readVector(int id) throws Exception {
+        long offset = vectorsOffset + (long) id * VECTOR_BYTES;
+        ByteBuffer buf = ByteBuffer.allocateDirect(VECTOR_BYTES);
+        buf.order(ByteOrder.BIG_ENDIAN);
+        int bytesRead = 0;
+        while (buf.hasRemaining()) {
+            int n = vectorsChannel.read(buf, offset + bytesRead);
+            if (n == -1) throw new IOException("EOF");
+            bytesRead += n;
+        }
+        buf.flip();
+        float[] result = new float[DIMS];
+        buf.asFloatBuffer().get(result);
+        return result;
     }
 
     private static void insertSorted(int[] neighbors, float[] distances, int k, int id, float dist) {
