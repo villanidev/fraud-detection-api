@@ -8,6 +8,7 @@ import villani.dev.vectorsearch.index.strategies.ivfpq.IVFPQIndex;
 import villani.dev.vectorsearch.index.strategies.ivfpq.ProductQuantizer;
 
 import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
 
 /**
  * Factory that reads the index strategy from config and creates the appropriate VectorIndex.
@@ -60,7 +61,7 @@ public class VectorIndexFactory {
      * @param vectors        original vectors [N][14] (used by BruteForce only)
      * @param labels         reference labels [N] — 0=legit, 1=fraud
      * @param pq             trained ProductQuantizer (used by IVF-PQ)
-     * @param vectorsMmap    memory-mapped data.bin (for reranking; may be null if rerank=false)
+     * @param vectorsChannel    memory-mapped data.bin (for reranking; may be null if rerank=false)
      * @param vectorsOffset  byte offset of vectors section in data.bin
      * @param vectorCount    total number of reference vectors
      */
@@ -70,7 +71,7 @@ public class VectorIndexFactory {
                               float[][] vectors,
                               byte[] labels,
                               ProductQuantizer pq,
-                              MappedByteBuffer vectorsMmap,
+                              FileChannel vectorsChannel,   // substitui MappedByteBuffer
                               long vectorsOffset,
                               int vectorCount) {
 
@@ -83,9 +84,10 @@ public class VectorIndexFactory {
                     "Unknown vector-search index: '" + indexType + "'. Valid values: brute_force, ivf_pq, hnsw");
         };
 
-        if (rerank && vectorsMmap != null && !(base instanceof BruteForceIndex)) {
-            return new ReRankingVectorIndex(base, vectorsMmap, vectorsOffset, vectorCount, candidates);
+        if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
+            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, candidates);
         }
+
         return base;
     }
 

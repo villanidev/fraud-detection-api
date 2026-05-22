@@ -1,9 +1,13 @@
 package villani.dev.vectorsearch.index;
 
 import java.nio.ByteOrder;
-import java.nio.FloatBuffer;
-import java.nio.MappedByteBuffer;
 import java.util.Arrays;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * Decorator that adds exact-distance reranking on top of any VectorIndex.
@@ -26,37 +30,35 @@ public class ReRankingVectorIndex implements VectorIndex {
     private static final int VECTOR_BYTES = DIMS * Float.BYTES; // 56 bytes
 
     private final VectorIndex inner;
-    private final MappedByteBuffer sourceBuffer;  // read-only reference, never positioned directly
-    private final ThreadLocal<MappedByteBuffer> threadLocalBuffer;
-    private final long vectorsOffset;   // byte offset of the first vector in data.bin
+    private final FileChannel vectorsChannel;  // mantido aberto, thread‑safe para read(pos)
+    private final long vectorsOffset;
     private final int vectorCount;
-    private final int candidates;       // coarse results from inner before rerank
+    private final int candidates;
 
-    // Per-thread scratch buffers — eliminates allocation on hot path
+    // Thread pool dedicado para leitura de arquivos (evita pinning)
+    private static final ExecutorService ioPool = Executors.newFixedThreadPool(2,
+            r -> {
+                Thread t = new Thread(r, "vector-io");
+                t.setDaemon(true);
+                return t;
+            });
+
+    // Scratch buffers usados no hot path da busca (apenas cálculo, sem I/O)
     private final ThreadLocal<int[]>   tlCoarseNeighbors;
     private final ThreadLocal<float[]> tlCoarseDists;
     private final ThreadLocal<float[]> tlExactDists;
-    private final ThreadLocal<float[]> tlVec;
+    private final ThreadLocal<float[]> tlVec; // buffer para vetor lido
 
-    /**
-     * @param inner         wrapped index (e.g. IVFPQIndex)
-     * @param vectorsMmap   memory-mapped view of the full data.bin file
-     * @param vectorsOffset byte position of the first original vector in data.bin
-     * @param vectorCount   total number of reference vectors
-     * @param candidates    number of approximate results to rerank (must be ≥ k)
-     */
     public ReRankingVectorIndex(VectorIndex inner,
-                                MappedByteBuffer vectorsMmap,
+                                FileChannel vectorsChannel,
                                 long vectorsOffset,
                                 int vectorCount,
                                 int candidates) {
         this.inner = inner;
-        this.sourceBuffer = vectorsMmap;
+        this.vectorsChannel = vectorsChannel;
         this.vectorsOffset = vectorsOffset;
         this.vectorCount = vectorCount;
         this.candidates = candidates;
-        this.threadLocalBuffer = ThreadLocal.withInitial(
-                () -> (MappedByteBuffer) sourceBuffer.duplicate().order(ByteOrder.BIG_ENDIAN));
         this.tlCoarseNeighbors = ThreadLocal.withInitial(() -> new int[candidates]);
         this.tlCoarseDists     = ThreadLocal.withInitial(() -> new float[candidates]);
         this.tlExactDists      = ThreadLocal.withInitial(() -> new float[candidates]);
@@ -65,25 +67,32 @@ public class ReRankingVectorIndex implements VectorIndex {
 
     @Override
     public int search(float[] query, int k, int[] neighbors, float[] distances) {
-        // Stage 1: coarse ANN — get `candidates` approximate results
         int[] coarseNeighbors = tlCoarseNeighbors.get();
         float[] coarseDists   = tlCoarseDists.get();
         inner.search(query, candidates, coarseNeighbors, coarseDists);
 
-        // Stage 2: exact rerank over the candidate set
         float[] exactDists = tlExactDists.get();
-        float[] vec = tlVec.get();
+        float[] vec = tlVec.get();  // será reutilizado para cada vetor lido
+
+        // Para cada candidato, lê o vetor via I/O assíncrono (descarregado em pool)
+        // Isso pode ser feito em paralelo, mas para simplicidade e baixo paralelismo (10 a 50 candidatos)
+        // faremos sequencial com Future, mantendo a semântica original.
         for (int i = 0; i < candidates; i++) {
             int id = coarseNeighbors[i];
             if (id < 0) {
                 exactDists[i] = Float.MAX_VALUE;
                 continue;
             }
-            readVector(id, vec);
+            try {
+                readVectorAsync(id, vec);  // bloqueia a virtual thread sem pinning
+            } catch (Exception e) {
+                exactDists[i] = Float.MAX_VALUE;
+                continue;
+            }
             exactDists[i] = squaredDistance(query, vec);
         }
 
-        // Partial sort to get true top-k
+        // Merge top‑k
         Arrays.fill(distances, Float.MAX_VALUE);
         Arrays.fill(neighbors, -1);
         for (int i = 0; i < candidates; i++) {
@@ -92,7 +101,6 @@ public class ReRankingVectorIndex implements VectorIndex {
             }
         }
 
-        // Count fraud labels in exact top-k
         byte[] labels = inner.getLabels();
         int fraudCount = 0;
         for (int i = 0; i < k; i++) {
@@ -101,13 +109,28 @@ public class ReRankingVectorIndex implements VectorIndex {
         return fraudCount;
     }
 
-    /** Reads 14 floats for vector `id` from the thread-local mmap without heap allocation. */
-    private void readVector(int id, float[] out) {
-        long pos = vectorsOffset + (long) id * VECTOR_BYTES;
-        MappedByteBuffer buf = threadLocalBuffer.get();
-        buf.position((int) pos);
-        FloatBuffer fb = buf.asFloatBuffer();
-        fb.get(out, 0, DIMS);
+    /** Lê o vetor `id` do disco usando o pool de I/O, bloqueando a thread virtual sem pinning. */
+    private void readVectorAsync(int id, float[] out) throws Exception {
+        long offset = vectorsOffset + (long) id * VECTOR_BYTES;
+        Future<float[]> future = ioPool.submit(() -> {
+            ByteBuffer buf = ByteBuffer.allocateDirect(VECTOR_BYTES);
+            buf.order(ByteOrder.BIG_ENDIAN);
+            // read(pos) é thread‑safe e não altera a posição do canal
+            int bytesRead = 0;
+            while (buf.hasRemaining()) {
+                int n = vectorsChannel.read(buf, offset + bytesRead);
+                if (n == -1) throw new IOException("EOF reached before reading full vector");
+                bytesRead += n;
+            }
+            buf.flip();
+            float[] result = new float[DIMS];
+            buf.asFloatBuffer().get(result);
+            return result;
+        });
+
+        // future.get() suspende a virtual thread sem prender a carrier
+        float[] read = future.get();
+        System.arraycopy(read, 0, out, 0, DIMS);
     }
 
     private static void insertSorted(int[] neighbors, float[] distances, int k, int id, float dist) {

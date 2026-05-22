@@ -7,6 +7,7 @@ import villani.dev.vectorsearch.index.strategies.ivfpq.KMeans;
 import villani.dev.vectorsearch.index.strategies.ivfpq.ProductQuantizer;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
@@ -50,6 +51,8 @@ public class VectorStore {
     private volatile VectorIndex index;
     private volatile float[] norms;
     private volatile float[] mccRisk;
+    private FileChannel vectorsChannel;
+    private long vectorsOffset;
 
     @Service.Inject
     public VectorStore(VectorIndexFactory factory) {
@@ -62,92 +65,162 @@ public class VectorStore {
      */
     public void load(Path path) throws IOException {
         try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
-            MappedByteBuffer buf = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size());
-            buf.order(ByteOrder.BIG_ENDIAN);
+            // Buffer de leitura de apenas 8 KB – nao aloca mais o arquivo inteiro.
+            ByteBuffer readBuf = ByteBuffer.allocateDirect(8192);
+            readBuf.order(ByteOrder.BIG_ENDIAN);
+            readBuf.flip(); // inicialmente vazio, para forçar leitura
 
             // --- Header ---
-            int magic = buf.getInt();
+            this.vectorsChannel = FileChannel.open(path, StandardOpenOption.READ);
+            int magic = readInt(channel, readBuf);
             if (magic != MAGIC) throw new IOException("Invalid data.bin: wrong magic 0x" + Integer.toHexString(magic));
-            int version = buf.getInt();
+            int version = readInt(channel, readBuf);
             if (version != VERSION) throw new IOException("Unsupported data.bin version: " + version);
-            int K = buf.getInt();
-            int N = buf.getInt();
-            long vectorsOffset = buf.getLong();
+            int K = readInt(channel, readBuf);
+            int N = readInt(channel, readBuf);
+            this.vectorsOffset = readLong(channel, readBuf);
 
             // --- Normalization (7 floats) ---
             float[] loadedNorms = new float[NORM_COUNT];
-            for (int i = 0; i < NORM_COUNT; i++) loadedNorms[i] = buf.getFloat();
+            for (int i = 0; i < NORM_COUNT; i++) loadedNorms[i] = readFloat(channel, readBuf);
 
             // --- MCC table (10000 floats) ---
             float[] loadedMcc = new float[MCC_TABLE_SIZE];
-            for (int i = 0; i < MCC_TABLE_SIZE; i++) loadedMcc[i] = buf.getFloat();
+            for (int i = 0; i < MCC_TABLE_SIZE; i++) loadedMcc[i] = readFloat(channel, readBuf);
 
-            // --- PQ codebooks (M * 256 * SUB_D floats) ---
+            // --- PQ codebooks ---
             float[][][] codebooks = new float[ProductQuantizer.M][ProductQuantizer.CODEBOOK_SIZE][ProductQuantizer.SUB_D];
             for (int m = 0; m < ProductQuantizer.M; m++) {
                 for (int c = 0; c < ProductQuantizer.CODEBOOK_SIZE; c++) {
-                    codebooks[m][c][0] = buf.getFloat();
-                    codebooks[m][c][1] = buf.getFloat();
+                    codebooks[m][c][0] = readFloat(channel, readBuf);
+                    codebooks[m][c][1] = readFloat(channel, readBuf);
                 }
             }
 
             // --- IVF centroids (K * 14 floats) ---
             float[][] centroids = new float[K][DIMS];
             for (int c = 0; c < K; c++) {
-                for (int d = 0; d < DIMS; d++) centroids[c][d] = buf.getFloat();
+                for (int d = 0; d < DIMS; d++) centroids[c][d] = readFloat(channel, readBuf);
             }
 
-            // --- Original vectors (N * 14 floats) ---
-            // Loaded into heap only for brute_force (testing only — not viable for 3M at runtime).
-            // For ivf_pq: map only the vector section to minimize virtual address range used
-            // for reranking. Physical pages are only faulted in when a candidate is actually read
-            // (~50 vectors per query = ~200KB of RAM, not 168MB).
-            long vectorSectionBytes = (long) N * DIMS * Float.BYTES;
-            MappedByteBuffer vectorsMmap = factory.isRerank()
-                    ? (MappedByteBuffer) channel.map(FileChannel.MapMode.READ_ONLY,
-                                                     vectorsOffset, vectorSectionBytes)
-                                                 .order(ByteOrder.BIG_ENDIAN)
-                    : null;
+            // posiciona o canal exatamente no início da seção de vetores
+            channel.position(vectorsOffset);
 
+            // --- Original vectors (opcional, só se brute-force) ---
             float[][] vectors = null;
             if (factory.isBruteForce()) {
                 vectors = new float[N][DIMS];
-                buf.position((int) vectorsOffset);
                 for (int i = 0; i < N; i++)
                     for (int d = 0; d < DIMS; d++)
-                        vectors[i][d] = buf.getFloat();
+                        vectors[i][d] = readFloat(channel, readBuf);
             } else {
-                buf.position(buf.position() + N * DIMS * Float.BYTES);
+                // Pula a seção de vetores (não usada no ivf_pq)
+                long vectorSectionBytes = (long) N * DIMS * Float.BYTES;
+                skipFully(channel, vectorSectionBytes);  // ou use skipFully
+                readBuf.clear();
+                readBuf.flip(); // invalida buffer, pois a posição saltou
             }
 
             // --- Labels (N bytes) ---
             byte[] labels = new byte[N];
-            buf.get(labels);
+            readFully(channel, readBuf, labels);
 
             // --- Inverted lists ---
             int[][] idsByCluster = new int[K][];
-            byte[][] codesByCluster = new byte[K][]; // flat: byte[count*M] per cluster
+            byte[][] codesByCluster = new byte[K][];
             for (int c = 0; c < K; c++) {
-                int count = buf.getInt();
+                int count = readInt(channel, readBuf);
                 idsByCluster[c] = new int[count];
                 codesByCluster[c] = new byte[count * ProductQuantizer.M];
                 for (int i = 0; i < count; i++) {
-                    idsByCluster[c][i] = buf.getInt();
-                    buf.get(codesByCluster[c], i * ProductQuantizer.M, ProductQuantizer.M);
+                    idsByCluster[c][i] = readInt(channel, readBuf);
+                    // Lê exatamente M bytes do código
+                    byte[] codeTmp = new byte[ProductQuantizer.M];
+                    readFully(channel, readBuf, codeTmp);
+                    System.arraycopy(codeTmp, 0, codesByCluster[c], i * ProductQuantizer.M, ProductQuantizer.M);
                 }
             }
 
-            // --- Assemble ProductQuantizer from loaded codebooks (no training at runtime) ---
+            // Após construir idsByCluster, valide:
+            for (int c = 0; c < K; c++) {
+                for (int id : idsByCluster[c]) {
+                    if (id < 0 || id >= N) {
+                        throw new IOException("Invalid ID " + id + " in cluster " + c + " (max=" + (N-1) + ")");
+                    }
+                }
+            }
+
+            // --- Monta ProductQuantizer e cria o índice ---
             ProductQuantizer pq = new ProductQuantizer(new KMeans());
             pq.setCodebooks(codebooks);
-
-            // --- Create index via factory ---
-            // vectorsMmap is mapped from vectorsOffset, so relative offset within it is 0.
             this.index = factory.create(centroids, idsByCluster, codesByCluster,
-                                        vectors, labels, pq,
-                                        vectorsMmap, 0L, N);
+                    vectors, labels, pq, this.vectorsChannel, this.vectorsOffset, N);
             this.norms = loadedNorms;
             this.mccRisk = loadedMcc;
+        }
+    }
+
+    private int readInt(FileChannel ch, ByteBuffer buf) throws IOException {
+        ensureBuffer(ch, buf, 4);
+        return buf.getInt();
+    }
+
+    private long readLong(FileChannel ch, ByteBuffer buf) throws IOException {
+        ensureBuffer(ch, buf, 8);
+        return buf.getLong();
+    }
+
+    private float readFloat(FileChannel ch, ByteBuffer buf) throws IOException {
+        ensureBuffer(ch, buf, 4);
+        return buf.getFloat();
+    }
+
+    private void readFully(FileChannel ch, ByteBuffer buf, byte[] dst) throws IOException {
+        int offset = 0;
+        while (offset < dst.length) {
+            if (!buf.hasRemaining()) {
+                buf.clear();
+                int read = ch.read(buf);
+                if (read == -1) throw new IOException("EOF reached unexpectedly");
+                buf.flip();
+            }
+            int toCopy = Math.min(buf.remaining(), dst.length - offset);
+            buf.get(dst, offset, toCopy);
+            offset += toCopy;
+        }
+    }
+
+    private void skipFully(FileChannel ch, long bytes) throws IOException {
+        long remaining = bytes;
+        while (remaining > 0) {
+            long skipped = ch.position() + remaining; // move para o final
+            ch.position(skipped); // a própria chamada já posiciona
+            remaining = 0; // encerra
+        }
+    }
+
+    private void ensureBuffer(FileChannel ch, ByteBuffer buf, int needed) throws IOException {
+        // Se já temos dados suficientes, não faz nada
+        if (buf.remaining() >= needed) return;
+
+        // Move os dados não lidos para o início do buffer
+        buf.compact();                // pos = bytes restantes, limit = capacidade
+        buf.flip();                   // prepara para leitura (pos=0, limit=bytes restantes)
+
+        // Se mesmo após compactar ainda não temos suficientes, preenchemos
+        while (buf.remaining() < needed) {
+            // Coloca o buffer em modo escrita após os dados já existentes
+            int pos = buf.limit();    // bytes já presentes
+            buf.limit(buf.capacity());
+            buf.position(pos);
+
+            int read = ch.read(buf);
+            if (read == -1) {
+                // EOF: não conseguimos completar a leitura
+                throw new IOException("EOF reached before reading " + needed + " bytes (available: " + buf.position() + ")");
+            }
+
+            buf.flip();  // prepara para leitura novamente
         }
     }
 
