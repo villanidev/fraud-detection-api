@@ -190,12 +190,22 @@ public class IVFPQIndex implements VectorIndex {
     }
 
     private static float squaredDistance(float[] query, float[] flat, int offset) {
-        float sum = 0.0f;
-        for (int i = 0; i < DIMS; i++) {
-            float diff = query[i] - flat[offset + i];
-            sum = Math.fma(diff, diff, sum);
-        }
-        return sum;
+        float d0 = query[0] - flat[offset];
+        float d1 = query[1] - flat[offset + 1];
+        float d2 = query[2] - flat[offset + 2];
+        float d3 = query[3] - flat[offset + 3];
+        float d4 = query[4] - flat[offset + 4];
+        float d5 = query[5] - flat[offset + 5];
+        float d6 = query[6] - flat[offset + 6];
+        float d7 = query[7] - flat[offset + 7];
+        float d8 = query[8] - flat[offset + 8];
+        float d9 = query[9] - flat[offset + 9];
+        float d10 = query[10] - flat[offset + 10];
+        float d11 = query[11] - flat[offset + 11];
+        float d12 = query[12] - flat[offset + 12];
+        float d13 = query[13] - flat[offset + 13];
+        return d0*d0 + d1*d1 + d2*d2 + d3*d3 + d4*d4 + d5*d5 + d6*d6 +
+                d7*d7 + d8*d8 + d9*d9 + d10*d10 + d11*d11 + d12*d12 + d13*d13;
     }
 
     @Override

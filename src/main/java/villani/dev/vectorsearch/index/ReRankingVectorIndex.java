@@ -5,9 +5,6 @@ import java.util.Arrays;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 /**
  * Decorator that adds exact-distance reranking on top of any VectorIndex.
@@ -35,19 +32,17 @@ public class ReRankingVectorIndex implements VectorIndex {
     private final int vectorCount;
     private final int candidates;
 
-    // Thread pool dedicado para leitura de arquivos (evita pinning)
-    /*private static final ExecutorService ioPool = Executors.newFixedThreadPool(4,
-            r -> {
-                Thread t = new Thread(r, "vector-io");
-                t.setDaemon(true);
-                return t;
-            });*/
-
     // Scratch buffers usados no hot path da busca (apenas cálculo, sem I/O)
     private final ThreadLocal<int[]>   tlCoarseNeighbors;
     private final ThreadLocal<float[]> tlCoarseDists;
     private final ThreadLocal<float[]> tlExactDists;
     private final ThreadLocal<float[]> tlVec; // buffer para vetor lido
+    //buffer off-heap reutilizável por thread (56 bytes)
+    private final ThreadLocal<ByteBuffer> tlReadBuffer = ThreadLocal.withInitial(() -> {
+        ByteBuffer buf = ByteBuffer.allocateDirect(VECTOR_BYTES);
+        buf.order(ByteOrder.BIG_ENDIAN);
+        return buf;
+    });
 
     public ReRankingVectorIndex(VectorIndex inner,
                                 FileChannel vectorsChannel,
@@ -84,7 +79,6 @@ public class ReRankingVectorIndex implements VectorIndex {
                 continue;
             }
             try {
-                //readVectorAsync(id, vec);  // bloqueia a virtual thread sem pinning
                 float[] readVec = readVector(id); // chamada direta, sem pool
                 System.arraycopy(readVec, 0, vec, 0, DIMS);
             } catch (Exception e) {
@@ -111,33 +105,9 @@ public class ReRankingVectorIndex implements VectorIndex {
         return fraudCount;
     }
 
-    /** Lê o vetor `id` do disco usando o pool de I/O, bloqueando a thread virtual sem pinning. */
-    /*private void readVectorAsync(int id, float[] out) throws Exception {
-        long offset = vectorsOffset + (long) id * VECTOR_BYTES;
-        Future<float[]> future = ioPool.submit(() -> {
-            ByteBuffer buf = ByteBuffer.allocateDirect(VECTOR_BYTES);
-            buf.order(ByteOrder.BIG_ENDIAN);
-            // read(pos) é thread‑safe e não altera a posição do canal
-            int bytesRead = 0;
-            while (buf.hasRemaining()) {
-                int n = vectorsChannel.read(buf, offset + bytesRead);
-                if (n == -1) throw new IOException("EOF reached before reading full vector");
-                bytesRead += n;
-            }
-            buf.flip();
-            float[] result = new float[DIMS];
-            buf.asFloatBuffer().get(result);
-            return result;
-        });
-
-        // future.get() suspende a virtual thread sem prender a carrier
-        float[] read = future.get();
-        System.arraycopy(read, 0, out, 0, DIMS);
-    }*/
-
     private float[] readVector(int id) throws Exception {
         long offset = vectorsOffset + (long) id * VECTOR_BYTES;
-        ByteBuffer buf = ByteBuffer.allocateDirect(VECTOR_BYTES);
+        ByteBuffer buf = tlReadBuffer.get();  // reutiliza o buffer da thread
         buf.order(ByteOrder.BIG_ENDIAN);
         int bytesRead = 0;
         while (buf.hasRemaining()) {
@@ -163,12 +133,22 @@ public class ReRankingVectorIndex implements VectorIndex {
     }
 
     private static float squaredDistance(float[] a, float[] b) {
-        float sum = 0.0f;
-        for (int i = 0; i < DIMS; i++) {
-            float diff = a[i] - b[i];
-            sum = Math.fma(diff, diff, sum);
-        }
-        return sum;
+        float d0 = a[0] - b[0];
+        float d1 = a[1] - b[1];
+        float d2 = a[2] - b[2];
+        float d3 = a[3] - b[3];
+        float d4 = a[4] - b[4];
+        float d5 = a[5] - b[5];
+        float d6 = a[6] - b[6];
+        float d7 = a[7] - b[7];
+        float d8 = a[8] - b[8];
+        float d9 = a[9] - b[9];
+        float d10 = a[10] - b[10];
+        float d11 = a[11] - b[11];
+        float d12 = a[12] - b[12];
+        float d13 = a[13] - b[13];
+        return d0*d0 + d1*d1 + d2*d2 + d3*d3 + d4*d4 + d5*d5 + d6*d6 +
+                d7*d7 + d8*d8 + d9*d9 + d10*d10 + d11*d11 + d12*d12 + d13*d13;
     }
 
     @Override
