@@ -1,10 +1,9 @@
 services:
   lb:
     image: haproxy:alpine
+    cpuset: "0"
     volumes:
-      # - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      # - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-      - ./haproxy-unix.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./loadbalancers/haproxy/haproxy-unix.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
       - sockets:/sockets
     ports:
       - "9999:9999"
@@ -22,15 +21,16 @@ services:
           memory: "50MB"
 
   api1:
-    image: villanidev/rinha-de-backend-2026:20260522152149
+    image: villanidev/rinha-de-backend-2026:20260522203119
+    cpuset: "1"
     environment:
+      SERVER_SOCKET_PATH: /sockets/api1.sock
       APP_VECTOR__SEARCH_INDEX: ivf_pq
       APP_VECTOR__SEARCH_NPROBE: "1"
       APP_VECTOR__SEARCH_NPROBE__GRAY: "1"
-      APP_VECTOR__SEARCH_CANDIDATES: "5"
-      APP_VECTOR__SEARCH_RERANK: "false"
+      APP_VECTOR__SEARCH_CANDIDATES: "15"
+      APP_VECTOR__SEARCH_RERANK: "true"
       APP_FRAUD_DEBUG: "false"
-      SERVER_SOCKET_PATH: /sockets/api1.sock
     volumes:
       - sockets:/sockets
     networks:
@@ -42,15 +42,16 @@ services:
           memory: "150MB"
 
   api2:
-    image: villanidev/rinha-de-backend-2026:20260522152149
+    image: villanidev/rinha-de-backend-2026:20260522203119
+    cpuset: "2"
     environment:
+      SERVER_SOCKET_PATH: /sockets/api2.sock
       APP_VECTOR__SEARCH_INDEX: ivf_pq
       APP_VECTOR__SEARCH_NPROBE: "1"
       APP_VECTOR__SEARCH_NPROBE__GRAY: "1"
-      APP_VECTOR__SEARCH_CANDIDATES: "5"
-      APP_VECTOR__SEARCH_RERANK: "false"
+      APP_VECTOR__SEARCH_CANDIDATES: "15"
+      APP_VECTOR__SEARCH_RERANK: "true"
       APP_FRAUD_DEBUG: "false"
-      SERVER_SOCKET_PATH: /sockets/api2.sock
     volumes:
       - sockets:/sockets
     networks:
