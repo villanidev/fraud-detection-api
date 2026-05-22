@@ -1,6 +1,7 @@
 services:
   lb:
     image: haproxy:alpine
+    cpuset: "0"
     volumes:
       - ./loadbalancers/haproxy/haproxy-unix.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
       - sockets:/sockets
@@ -21,6 +22,7 @@ services:
 
   api1:
     image: ${IMAGE:-villanidev/rinha-de-backend-2026:latest}
+    cpuset: "1"
     environment:
       SERVER_SOCKET_PATH: /sockets/api1.sock
       APP_VECTOR__SEARCH_INDEX: ivf_pq
@@ -41,6 +43,7 @@ services:
 
   api2:
     image: ${IMAGE:-villanidev/rinha-de-backend-2026:latest}
+    cpuset: "2"
     environment:
       SERVER_SOCKET_PATH: /sockets/api2.sock
       APP_VECTOR__SEARCH_INDEX: ivf_pq
