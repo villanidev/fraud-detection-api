@@ -6,14 +6,12 @@ import java.util.Arrays;
 
 /**
  * Approximate Nearest Neighbor search via IVF (Inverted File Index) + PQ (Product Quantization).
- *
  * Search pipeline per query:
  *   1. Find the nprobe nearest IVF centroids to the query (coarse quantization).
  *   2. Precompute the ADC table: table[m][c] = dist²(query_sub_m, codebook[m][c]).
  *   3. Scan the first nprobeGray clusters. If fraudCount ∈ {0,1,4,5} → early exit (clear decision).
  *   4. If gray zone (fraudCount ∈ {2,3}) → continue scanning up to nprobe clusters.
  *   5. Return fraud count in top-k (caller decides k ≤ candidates).
- *
  * Plain Java — no DI annotations; created by VectorIndexFactory.
  */
 public class IVFPQIndex implements VectorIndex {
@@ -65,7 +63,7 @@ public class IVFPQIndex implements VectorIndex {
     @Override
     public int search(float[] query, int k, int[] neighbors, float[] distances) {
         int actualProbes = Math.min(nprobe, K);
-        int actualCandidates = Math.min(candidates, k);
+        int actualCandidates = candidates;
 
         // --- Step 1: Find nprobe nearest centroids (reuse ThreadLocal scratch arrays) ---
         float[] centroidDist  = tlCentroidDist.get();
@@ -103,8 +101,13 @@ public class IVFPQIndex implements VectorIndex {
                 for (int i = 0; i < k; i++) {
                     if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fc++;
                 }
-                if (fc <= 1 || fc >= k - 1) return fc;  // clear: 0/1 legit or 4/5 fraud
-                // gray zone (fc==2 or fc==3) — continue full scan
+
+                // Só faz early exit se for UNANIMIDADE (0 ou k fraudes)
+                // e se já analisou pelo menos 2 clusters (p >= 1)
+                if (p >= 1 && (fc == 0 || fc == k)) {
+                    return fc;
+                }
+                // Caso contrário, continua analisando mais clusters
             }
         }
 
