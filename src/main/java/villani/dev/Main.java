@@ -7,13 +7,18 @@ import io.helidon.service.registry.Services;
 import io.helidon.webserver.WebServer;
 import villani.dev.preprocessing.DataReader;
 import villani.dev.preprocessing.KMeansEvaluator;
+import villani.dev.preprocessing.RecallEvaluator;
+import villani.dev.vectorsearch.index.VectorIndex;
+import villani.dev.vectorsearch.index.strategies.ivfpq.IVFPQIndex;
 import villani.dev.vectorsearch.retrieval.VectorStore;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.Random;
 
 /**
  * Main class responsible for starting the service registry.
@@ -51,6 +56,11 @@ public class Main {
 
         if (args.length > 0 && "--evaluation".equals(args[0])) {
             runKmeansEvaluation();
+            return;
+        }
+
+        if (args.length > 0 && "--recall".equals(args[0])) {
+            runRecallEvaluation();
             return;
         }
 
@@ -118,6 +128,50 @@ public class Main {
         System.out.println("[evaluation] Finding best cluster (k)...");
         int bestK = evaluator.suggestK(results);
         System.out.println("[evaluation] Best K: " + bestK);
+        System.exit(0);
+    }
+
+    private static void runRecallEvaluation() throws IOException {
+        VectorStore vectorStore = Services.get(VectorStore.class);
+        System.out.println("[recall] Loading data.bin...");
+        vectorStore.load(Path.of(System.getenv().getOrDefault("DATA_BIN_PATH", "data.bin")));
+
+        DataReader dataReader = Services.get(DataReader.class);
+        System.out.println("[recall] Loading references...");
+        DataReader.ReferenceData ref = dataReader.loadReferences(Path.of("src/main/resources/references.json.gz"));
+        float[][] vectors = ref.vectors();
+        byte[] labels = ref.labels();
+        float[][] sampleVectors =  new Random(42L)
+                .ints(0, vectors.length) // Gera índices aleatórios no tamanho da matriz
+                .distinct()              // Garante que não haverá índices duplicados
+                .limit(10000)            // Limita para os 10.000 itens desejados
+                .mapToObj(i -> vectors[i])
+                .toArray(float[][]::new);
+
+        int[] nprobes = { 1, 2, 4, 8, 16, 32, 64 };
+        int[] nprobeGrays = { 1, 2, 4, 8, 16, 32, 64 };
+        int[] candidates = { 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 100 };
+
+        int[][] groundTruth = RecallEvaluator.computeGroundTruth(sampleVectors, vectors, 5);
+
+        System.out.println("nprobe,nprobeGray,candidates,Recall@5,Latência(ms),QPS");
+        for (int np : nprobes) {
+            //System.out.printf("[recall] running probe - %s from %s", np, Arrays.toString(nprobes));
+            for (int ng : nprobeGrays) {
+                //System.out.printf("[recall] running probe gray - %s from %s", ng, Arrays.toString(nprobeGrays));
+                for (int cand : candidates) {
+                    //System.out.printf("[recall] running candidates - %s from %s", cand, Arrays.toString(candidates));
+                    // Cria índice com os parâmetros atuais
+                    VectorIndex index = vectorStore.createIndexForBenchmark(np, ng, cand);
+
+                    RecallEvaluator.BenchmarkResult res = RecallEvaluator.benchmark(index, sampleVectors, 5);
+                    double recall = RecallEvaluator.evaluateRecall(groundTruth, res.neighbors(), 5);
+                    System.out.printf("%d,%d,%d,%.4f,%.2f,%.1f%n",
+                            np, ng, cand, recall, res.avgLatencyMs(), res.qps());
+                }
+            }
+        }
+
         System.exit(0);
     }
 }

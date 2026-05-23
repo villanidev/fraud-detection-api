@@ -91,6 +91,37 @@ public class VectorIndexFactory {
         return base;
     }
 
+    /**
+     * Cria o índice com parâmetros de busca customizados (usado no benchmark).
+     */
+    public VectorIndex create(float[][] centroids,
+                              int[][] idsByCluster,
+                              byte[][] codesByCluster,
+                              float[][] vectors,
+                              byte[] labels,
+                              ProductQuantizer pq,
+                              FileChannel vectorsChannel,
+                              long vectorsOffset,
+                              int vectorCount,
+                              int nprobe,
+                              int nprobeGray,
+                              int candidates) {
+
+        VectorIndex base = switch (indexType) {
+            case "brute_force" -> new BruteForceIndex(vectors, labels);
+            case "ivf_pq" -> new IVFPQIndex(centroids, idsByCluster, codesByCluster,
+                    labels, pq, nprobe, nprobeGray, candidates);
+            case "hnsw" -> new HNSWIndex(labels);
+            default -> throw new IllegalArgumentException("Unknown index type: " + indexType);
+        };
+
+        if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
+            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, candidates);
+        }
+
+        return base;
+    }
+
     public String getIndexType()  { return indexType; }
     public boolean isRerank()     { return rerank; }
     public boolean isBruteForce() { return "brute_force".equals(indexType); }

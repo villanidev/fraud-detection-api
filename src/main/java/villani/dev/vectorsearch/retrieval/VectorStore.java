@@ -54,6 +54,14 @@ public class VectorStore {
     private FileChannel vectorsChannel;
     private long vectorsOffset;
 
+    private volatile float[][] centroids;
+    private volatile int[][] idsByCluster;
+    private volatile byte[][] codesByCluster;
+    private volatile float[][] vectors;
+    private volatile byte[] labels;
+    private volatile ProductQuantizer pq;
+    private volatile int vectorCount;
+
     @Service.Inject
     public VectorStore(VectorIndexFactory factory) {
         this.factory = factory;
@@ -102,6 +110,7 @@ public class VectorStore {
             for (int c = 0; c < K; c++) {
                 for (int d = 0; d < DIMS; d++) centroids[c][d] = readFloat(channel, readBuf);
             }
+            this.centroids = centroids;
 
             // posiciona o canal exatamente no início da seção de vetores
             channel.position(vectorsOffset);
@@ -110,9 +119,12 @@ public class VectorStore {
             float[][] vectors = null;
             if (factory.isBruteForce()) {
                 vectors = new float[N][DIMS];
-                for (int i = 0; i < N; i++)
-                    for (int d = 0; d < DIMS; d++)
+                for (int i = 0; i < N; i++) {
+                    for (int d = 0; d < DIMS; d++) {
                         vectors[i][d] = readFloat(channel, readBuf);
+                    }
+                }
+                this.vectors = vectors;
             } else {
                 // Pula a seção de vetores (não usada no ivf_pq)
                 long vectorSectionBytes = (long) N * DIMS * Float.BYTES;
@@ -124,6 +136,7 @@ public class VectorStore {
             // --- Labels (N bytes) ---
             byte[] labels = new byte[N];
             readFully(channel, readBuf, labels);
+            this.labels = labels;
 
             // --- Inverted lists ---
             int[][] idsByCluster = new int[K][];
@@ -140,10 +153,16 @@ public class VectorStore {
                     System.arraycopy(codeTmp, 0, codesByCluster[c], i * ProductQuantizer.M, ProductQuantizer.M);
                 }
             }
+            this.idsByCluster = idsByCluster;
+            this.codesByCluster = codesByCluster;
 
             // --- Monta ProductQuantizer e cria o índice ---
             ProductQuantizer pq = new ProductQuantizer(new KMeans());
             pq.setCodebooks(codebooks);
+            this.pq = pq;
+            this.vectorCount = N;
+
+            // Cria o índice padrão com os parâmetros do config
             this.index = factory.create(centroids, idsByCluster, codesByCluster,
                     vectors, labels, pq, this.vectorsChannel, this.vectorsOffset, N);
             this.norms = loadedNorms;
@@ -258,5 +277,14 @@ public class VectorStore {
      */
     public float[] getMccRisk() {
         return mccRisk;
+    }
+
+    public VectorIndex createIndexForBenchmark(int nprobe, int nprobeGray, int candidates) {
+        return factory.create(
+                centroids, idsByCluster, codesByCluster,
+                vectors, labels, pq,
+                vectorsChannel, vectorsOffset, vectorCount,
+                nprobe, nprobeGray, candidates
+        );
     }
 }
