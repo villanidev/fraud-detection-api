@@ -148,27 +148,23 @@ public class Main {
                 .mapToObj(i -> vectors[i])
                 .toArray(float[][]::new);
 
-        int[] nprobes = { 1, 2, 4, 8, 16, 32, 64 };
-        int[] nprobeGrays = { 1, 2, 4, 8, 16, 32, 64 };
+        int[] nprobes = { 1, 2, 4, 8, 16 };
         int[] candidates = { 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 100 };
 
         int[][] groundTruth = RecallEvaluator.computeGroundTruth(sampleVectors, vectors, 5);
 
-        System.out.println("nprobe,nprobeGray,candidates,Recall@5,Latência(ms),QPS");
+        System.out.println("nprobe,candidates,Recall@5,Latência(ms),QPS");
         for (int np : nprobes) {
             //System.out.printf("[recall] running probe - %s from %s", np, Arrays.toString(nprobes));
-            for (int ng : nprobeGrays) {
-                //System.out.printf("[recall] running probe gray - %s from %s", ng, Arrays.toString(nprobeGrays));
-                for (int cand : candidates) {
-                    //System.out.printf("[recall] running candidates - %s from %s", cand, Arrays.toString(candidates));
-                    // Cria índice com os parâmetros atuais
-                    VectorIndex index = vectorStore.createIndexForBenchmark(np, ng, cand);
+            for (int cand : candidates) {
+                //System.out.printf("[recall] running candidates - %s from %s", cand, Arrays.toString(candidates));
+                // Cria índice com os parâmetros atuais
+                VectorIndex index = vectorStore.createIndexForBenchmark(np, cand);
 
-                    RecallEvaluator.BenchmarkResult res = RecallEvaluator.benchmark(index, sampleVectors, 5);
-                    double recall = RecallEvaluator.evaluateRecall(groundTruth, res.neighbors(), 5);
-                    System.out.printf("%d,%d,%d,%.4f,%.2f,%.1f%n",
-                            np, ng, cand, recall, res.avgLatencyMs(), res.qps());
-                }
+                RecallEvaluator.BenchmarkResult res = RecallEvaluator.benchmark(index, sampleVectors, 5);
+                double recall = RecallEvaluator.evaluateRecall(groundTruth, res.neighbors(), 5);
+                System.out.printf("%d,%d,%.4f,%.2f,%.1f%n",
+                        np, cand, recall, res.avgLatencyMs(), res.qps());
             }
         }
 

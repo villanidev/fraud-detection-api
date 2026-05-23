@@ -279,12 +279,12 @@ public class VectorStore {
         return mccRisk;
     }
 
-    public VectorIndex createIndexForBenchmark(int nprobe, int nprobeGray, int candidates) {
+    public VectorIndex createIndexForBenchmark(int nprobe, int candidates) {
         return factory.create(
                 centroids, idsByCluster, codesByCluster,
                 vectors, labels, pq,
                 vectorsChannel, vectorsOffset, vectorCount,
-                nprobe, nprobeGray, candidates
+                nprobe, candidates
         );
     }
 }

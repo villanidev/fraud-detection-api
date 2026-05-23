@@ -25,7 +25,6 @@ public class IVFPQIndex implements VectorIndex {
     private final byte[] labels;           // [N] — 0=legit, 1=fraud
     private final ProductQuantizer pq;
     private final int nprobe;
-    private final int nprobeGray;  // fast-path probe count; early exit if decision is clear
     private final int candidates;
 
     // ThreadLocal scratch arrays — eliminates ~11KB of heap allocation per request.
@@ -40,7 +39,6 @@ public class IVFPQIndex implements VectorIndex {
                       byte[] labels,
                       ProductQuantizer pq,
                       int nprobe,
-                      int nprobeGray,
                       int candidates) {
         this.K = centroids.length;
         // Flatten [K][14] → float[K*14] to eliminate pointer chasing in the hot centroid scan loop
@@ -52,7 +50,6 @@ public class IVFPQIndex implements VectorIndex {
         this.labels = labels;
         this.pq = pq;
         this.nprobe = nprobe;
-        this.nprobeGray = nprobeGray;
         this.candidates = candidates;
 
         this.tlCentroidDist  = ThreadLocal.withInitial(() -> new float[K]);
@@ -78,11 +75,10 @@ public class IVFPQIndex implements VectorIndex {
         float[][] adcTable = tlAdcTable.get();
         pq.buildAdcTable(query, adcTable);
 
-        // --- Step 3+4: Scan clusters — early exit after nprobeGray if decision is clear ---
+        // --- Step 3: Scan every cluster ---
         Arrays.fill(distances, Float.MAX_VALUE);
         Arrays.fill(neighbors, -1);
 
-        int actualGray = Math.min(nprobeGray, actualProbes);
         for (int p = 0; p < actualProbes; p++) {
             int clusterIdx = centroidOrder[p];
             int[] ids = idsByCluster[clusterIdx];
@@ -94,24 +90,9 @@ public class IVFPQIndex implements VectorIndex {
                     insertSorted(neighbors, distances, actualCandidates, ids[i], approxDist);
                 }
             }
-
-            // After fast-path probes: count fraud in top-k and exit if decision is unambiguous
-            if (p == actualGray - 1) {
-                int fc = 0;
-                for (int i = 0; i < k; i++) {
-                    if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fc++;
-                }
-
-                // Só faz early exit se for UNANIMIDADE (0 ou k fraudes)
-                // e se já analisou pelo menos 2 clusters (p >= 1)
-                if (p >= 1 && (fc == 0 || fc == k)) {
-                    return fc;
-                }
-                // Caso contrário, continua analisando mais clusters
-            }
         }
 
-        // --- Step 5: Count fraud labels in top-k ---
+        // --- Step 4: Count fraud labels in top-k ---
         int fraudCount = 0;
         for (int i = 0; i < k; i++) {
             if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
