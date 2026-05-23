@@ -42,7 +42,7 @@ services:
           memory: "150MB"
 
   api2:
-    image: villanidev/rinha-de-backend-2026:20260522203119
+    image: villanidev/rinha-de-backend-2026:20260523125843
     cpuset: "2"
     environment:
       SERVER_SOCKET_PATH: /sockets/api2.sock
