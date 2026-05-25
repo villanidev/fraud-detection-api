@@ -25,7 +25,7 @@ import java.nio.file.Path;
 @Service.Singleton
 public class PreProcessorService {
 
-    private static final int DEFAULT_K = 512;  // IVF cluster count
+    private static final int DEFAULT_K = 1472;  // IVF cluster count
     private static final long SEED = 42L;
 
     private final DataReader dataReader;

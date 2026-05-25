@@ -1,9 +1,5 @@
 package villani.dev.vectorsearch.index.strategies.ivfpq;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-
 /**
  * Compresses each 14D vector into M=7 bytes using Product Quantization.
  * Each byte is the centroid index within a 2D subspace (256 centroids per subspace).

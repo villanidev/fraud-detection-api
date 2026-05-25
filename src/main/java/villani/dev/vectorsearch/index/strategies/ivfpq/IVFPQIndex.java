@@ -6,14 +6,12 @@ import java.util.Arrays;
 
 /**
  * Approximate Nearest Neighbor search via IVF (Inverted File Index) + PQ (Product Quantization).
- *
  * Search pipeline per query:
  *   1. Find the nprobe nearest IVF centroids to the query (coarse quantization).
  *   2. Precompute the ADC table: table[m][c] = dist²(query_sub_m, codebook[m][c]).
  *   3. Scan the first nprobeGray clusters. If fraudCount ∈ {0,1,4,5} → early exit (clear decision).
  *   4. If gray zone (fraudCount ∈ {2,3}) → continue scanning up to nprobe clusters.
  *   5. Return fraud count in top-k (caller decides k ≤ candidates).
- *
  * Plain Java — no DI annotations; created by VectorIndexFactory.
  */
 public class IVFPQIndex implements VectorIndex {
@@ -27,7 +25,6 @@ public class IVFPQIndex implements VectorIndex {
     private final byte[] labels;           // [N] — 0=legit, 1=fraud
     private final ProductQuantizer pq;
     private final int nprobe;
-    private final int nprobeGray;  // fast-path probe count; early exit if decision is clear
     private final int candidates;
 
     // ThreadLocal scratch arrays — eliminates ~11KB of heap allocation per request.
@@ -42,7 +39,6 @@ public class IVFPQIndex implements VectorIndex {
                       byte[] labels,
                       ProductQuantizer pq,
                       int nprobe,
-                      int nprobeGray,
                       int candidates) {
         this.K = centroids.length;
         // Flatten [K][14] → float[K*14] to eliminate pointer chasing in the hot centroid scan loop
@@ -54,7 +50,6 @@ public class IVFPQIndex implements VectorIndex {
         this.labels = labels;
         this.pq = pq;
         this.nprobe = nprobe;
-        this.nprobeGray = nprobeGray;
         this.candidates = candidates;
 
         this.tlCentroidDist  = ThreadLocal.withInitial(() -> new float[K]);
@@ -65,7 +60,7 @@ public class IVFPQIndex implements VectorIndex {
     @Override
     public int search(float[] query, int k, int[] neighbors, float[] distances) {
         int actualProbes = Math.min(nprobe, K);
-        int actualCandidates = Math.min(candidates, k);
+        int actualCandidates = candidates;
 
         // --- Step 1: Find nprobe nearest centroids (reuse ThreadLocal scratch arrays) ---
         float[] centroidDist  = tlCentroidDist.get();
@@ -80,11 +75,10 @@ public class IVFPQIndex implements VectorIndex {
         float[][] adcTable = tlAdcTable.get();
         pq.buildAdcTable(query, adcTable);
 
-        // --- Step 3+4: Scan clusters — early exit after nprobeGray if decision is clear ---
+        // --- Step 3: Scan every cluster ---
         Arrays.fill(distances, Float.MAX_VALUE);
         Arrays.fill(neighbors, -1);
 
-        int actualGray = Math.min(nprobeGray, actualProbes);
         for (int p = 0; p < actualProbes; p++) {
             int clusterIdx = centroidOrder[p];
             int[] ids = idsByCluster[clusterIdx];
@@ -96,19 +90,9 @@ public class IVFPQIndex implements VectorIndex {
                     insertSorted(neighbors, distances, actualCandidates, ids[i], approxDist);
                 }
             }
-
-            // After fast-path probes: count fraud in top-k and exit if decision is unambiguous
-            if (p == actualGray - 1) {
-                int fc = 0;
-                for (int i = 0; i < k; i++) {
-                    if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fc++;
-                }
-                if (fc <= 1 || fc >= k - 1) return fc;  // clear: 0/1 legit or 4/5 fraud
-                // gray zone (fc==2 or fc==3) — continue full scan
-            }
         }
 
-        // --- Step 5: Count fraud labels in top-k ---
+        // --- Step 4: Count fraud labels in top-k ---
         int fraudCount = 0;
         for (int i = 0; i < k; i++) {
             if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
@@ -137,7 +121,7 @@ public class IVFPQIndex implements VectorIndex {
      */
     private static void partialSort(int[] order, float[] dist, int top) {
         quickselect(order, dist, 0, order.length - 1, top);
-        // Sort just the top slice for deterministic probe order
+        // Ordena os top elementos para manter o determinismo
         for (int i = 1; i < top; i++) {
             int oi = order[i];
             float di = dist[oi];
@@ -151,34 +135,61 @@ public class IVFPQIndex implements VectorIndex {
     }
 
     private static void quickselect(int[] order, float[] dist, int left, int right, int k) {
-        if (left >= right) return;
-        int pivotIdx = partition(order, dist, left, right);
-        int rank = pivotIdx - left + 1;
-        if (rank == k) return;
-        if (k < rank) quickselect(order, dist, left, pivotIdx - 1, k);
-        else quickselect(order, dist, pivotIdx + 1, right, k - rank);
+        while (left < right) {
+            int pivotIdx = medianOfThreePartition(order, dist, left, right);
+            int rank = pivotIdx - left + 1;
+            if (rank == k) return;
+            if (k < rank) {
+                right = pivotIdx - 1;
+            } else {
+                left = pivotIdx + 1;
+                k -= rank;
+            }
+        }
     }
 
-    private static int partition(int[] order, float[] dist, int left, int right) {
+    private static int medianOfThreePartition(int[] order, float[] dist, int left, int right) {
+        int mid = (left + right) >>> 1;
+        // Coloca a mediana dos três (left, mid, right) na posição right
+        if (dist[order[left]] > dist[order[mid]]) swap(order, left, mid);
+        if (dist[order[left]] > dist[order[right]]) swap(order, left, right);
+        if (dist[order[mid]] > dist[order[right]]) swap(order, mid, right);
+        // O pivô agora está em order[right] (o maior dos três medianos)
         float pivotDist = dist[order[right]];
         int i = left - 1;
         for (int j = left; j < right; j++) {
             if (dist[order[j]] <= pivotDist) {
                 i++;
-                int tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+                swap(order, i, j);
             }
         }
-        int tmp = order[i + 1]; order[i + 1] = order[right]; order[right] = tmp;
+        swap(order, i + 1, right);
         return i + 1;
     }
 
+    private static void swap(int[] arr, int i, int j) {
+        int tmp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = tmp;
+    }
+
     private static float squaredDistance(float[] query, float[] flat, int offset) {
-        float sum = 0.0f;
-        for (int i = 0; i < DIMS; i++) {
-            float diff = query[i] - flat[offset + i];
-            sum = Math.fma(diff, diff, sum);
-        }
-        return sum;
+        float d0 = query[0] - flat[offset];
+        float d1 = query[1] - flat[offset + 1];
+        float d2 = query[2] - flat[offset + 2];
+        float d3 = query[3] - flat[offset + 3];
+        float d4 = query[4] - flat[offset + 4];
+        float d5 = query[5] - flat[offset + 5];
+        float d6 = query[6] - flat[offset + 6];
+        float d7 = query[7] - flat[offset + 7];
+        float d8 = query[8] - flat[offset + 8];
+        float d9 = query[9] - flat[offset + 9];
+        float d10 = query[10] - flat[offset + 10];
+        float d11 = query[11] - flat[offset + 11];
+        float d12 = query[12] - flat[offset + 12];
+        float d13 = query[13] - flat[offset + 13];
+        return d0*d0 + d1*d1 + d2*d2 + d3*d3 + d4*d4 + d5*d5 + d6*d6 +
+                d7*d7 + d8*d8 + d9*d9 + d10*d10 + d11*d11 + d12*d12 + d13*d13;
     }
 
     @Override
