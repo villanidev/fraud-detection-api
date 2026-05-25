@@ -168,7 +168,6 @@ public class VectorStore {
             this.norms = loadedNorms;
             this.mccRisk = loadedMcc;
 
-            //warmUpDiskCache(this.vectorsChannel, this.vectorsOffset, N, DIMS);
         }
     }
 
@@ -234,24 +233,6 @@ public class VectorStore {
 
             buf.flip();  // prepara para leitura novamente
         }
-    }
-
-    private void warmUpDiskCache(FileChannel channel, long vectorsOffset, int vectorCount, int dims) throws IOException {
-        System.out.println("Starting warm up disk cache");
-        long totalBytes = (long) vectorCount * dims * Float.BYTES;
-        ByteBuffer buffer = ByteBuffer.allocateDirect(65536); // 64 KB
-        long position = vectorsOffset;
-        long end = position + totalBytes;
-        while (position < end) {
-            buffer.clear();
-            if (position + buffer.capacity() > end) {
-                buffer.limit((int) (end - position));
-            }
-            int read = channel.read(buffer, position);
-            if (read == -1) break;
-            position += read;
-        }
-        System.out.println("Finished warm up disk cache");
     }
 
     public int search(float[] query, int k, int[] neighbors, float[] distances) {

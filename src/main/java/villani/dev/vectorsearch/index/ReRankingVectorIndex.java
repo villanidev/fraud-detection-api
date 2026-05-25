@@ -69,9 +69,6 @@ public class ReRankingVectorIndex implements VectorIndex {
         float[] exactDists = tlExactDists.get();
         float[] vec = tlVec.get();  // será reutilizado para cada vetor lido
 
-        // Para cada candidato, lê o vetor via I/O assíncrono (descarregado em pool)
-        // Isso pode ser feito em paralelo, mas para simplicidade e baixo paralelismo (10 a 50 candidatos)
-        // faremos sequencial com Future, mantendo a semântica original.
         for (int i = 0; i < candidates; i++) {
             int id = coarseNeighbors[i];
             if (id < 0) {
