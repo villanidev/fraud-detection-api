@@ -51,7 +51,7 @@ public class KMeans {
         float[][] trainVectors = vectors;
         if (SAMPLE_SIZE > 0 && vectors.length > SAMPLE_SIZE) {
             trainVectors = sample(vectors, seed);
-            System.out.printf("[KMeans] IVF: usando %d amostras (total %d)%n", SAMPLE_SIZE, vectors.length);
+            System.out.printf("[KMeans] IVF: Using %d samples (total %d)%n", SAMPLE_SIZE, vectors.length);
         }
         float[][] bestCentroids = null;
         double bestInertia = Double.MAX_VALUE;

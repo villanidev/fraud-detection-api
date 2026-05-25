@@ -168,7 +168,7 @@ public class VectorStore {
             this.norms = loadedNorms;
             this.mccRisk = loadedMcc;
 
-            warmUpDiskCache(this.vectorsChannel, this.vectorsOffset, N, DIMS);
+            //warmUpDiskCache(this.vectorsChannel, this.vectorsOffset, N, DIMS);
         }
     }
 

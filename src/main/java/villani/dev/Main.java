@@ -114,7 +114,7 @@ public class Main {
         System.out.println("[evaluation] Loading references...");
         DataReader.ReferenceData ref = dataReader.loadReferences(Path.of("src/main/resources/references.json.gz"));
         float[][] vectors = ref.vectors();
-        int[] kCandidates = { 512, 1024, 1536, 2048, 2560, 3072 };
+        int[] kCandidates = { 1024, 1088, 1152, 1216, 1280, 1344, 1408, 1472, 1536, 1600, 1664, 1728, 1792, 1856, 1920, 1984, 2048 };
         System.out.println("[evaluation] Running KMeans evaluation...");
         KMeansEvaluator evaluator = new KMeansEvaluator(
                 vectors,              // seus 3M vetores
