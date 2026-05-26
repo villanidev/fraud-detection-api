@@ -52,6 +52,24 @@ public class ProductQuantizer {
         cbFlat = toFlat(codebooks);
     }
 
+    /** Overload: train from flat vectors (row-major) with known N to avoid full matrix allocation externally. */
+    public void train(float[] vectorsFlat, int N, long seed) {
+        codebooks = new float[M][CODEBOOK_SIZE][SUB_D];
+        for (int m = 0; m < M; m++) {
+            int offset = m * SUB_D;
+            float[][] subVectors = new float[N][SUB_D];
+            for (int i = 0; i < N; i++) {
+                int base = i * (M * SUB_D); // but M*SUB_D == 14
+                // base should be i*14
+                base = i * (M * SUB_D);
+                subVectors[i][0] = vectorsFlat[base + offset];
+                subVectors[i][1] = vectorsFlat[base + offset + 1];
+            }
+            codebooks[m] = kMeans.clusterSub(subVectors, CODEBOOK_SIZE, seed + m);
+        }
+        cbFlat = toFlat(codebooks);
+    }
+
     /**
      * Encodes a 14D vector to 7 bytes (one centroid index per subspace).
      */
@@ -61,6 +79,20 @@ public class ProductQuantizer {
         for (int m = 0; m < M; m++) {
             sub[0] = vec[m * SUB_D];
             sub[1] = vec[m * SUB_D + 1];
+            codes[m] = (byte) kMeans.nearestSub(sub, codebooks[m], SUB_D);
+        }
+        return codes;
+    }
+
+    /** Encode using flat array without allocating small temporary float[14] per vector. */
+    public byte[] encodeFlat(float[] flat, int idx) {
+        byte[] codes = new byte[M];
+        float[] sub = new float[SUB_D];
+        int base = idx * (M * SUB_D); // 14
+        for (int m = 0; m < M; m++) {
+            int off = base + m * SUB_D;
+            sub[0] = flat[off];
+            sub[1] = flat[off + 1];
             codes[m] = (byte) kMeans.nearestSub(sub, codebooks[m], SUB_D);
         }
         return codes;

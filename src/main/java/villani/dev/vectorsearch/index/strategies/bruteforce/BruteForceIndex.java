@@ -13,11 +13,11 @@ import java.util.Arrays;
 public class BruteForceIndex implements VectorIndex {
 
     private static final int DIMS = 14;
-    private final float[][] vectors;
+    private final float[] vectorsFlat;
     private final byte[] labels;
 
-    public BruteForceIndex(float[][] vectors, byte[] labels) {
-        this.vectors = vectors;
+    public BruteForceIndex(float[] vectorsFlat, byte[] labels) {
+        this.vectorsFlat = vectorsFlat;
         this.labels = labels;
     }
 
@@ -26,8 +26,9 @@ public class BruteForceIndex implements VectorIndex {
         Arrays.fill(distances, Float.MAX_VALUE);
         Arrays.fill(neighbors, -1);
 
-        for (int i = 0; i < vectors.length; i++) {
-            float d = squaredDistance(query, vectors[i]);
+        int N = labels.length;
+        for (int i = 0; i < N; i++) {
+            float d = squaredDistance(query, vectorsFlat, i);
             if (d < distances[k - 1]) {
                 insertSorted(neighbors, distances, k, i, d);
             }
@@ -55,10 +56,11 @@ public class BruteForceIndex implements VectorIndex {
         neighbors[pos] = id;
     }
 
-    private static float squaredDistance(float[] a, float[] b) {
+    private static float squaredDistance(float[] a, float[] flat, int idx) {
         float sum = 0.0f;
+        int base = idx * DIMS;
         for (int i = 0; i < DIMS; i++) {
-            float diff = a[i] - b[i];
+            float diff = a[i] - flat[base + i];
             sum += diff * diff;
         }
         return sum;

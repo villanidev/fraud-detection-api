@@ -20,9 +20,10 @@ public class RecallEvaluator {
      * @param k            número de vizinhos desejado (ex: 5)
      * @return array [nQueries][k] com os IDs dos vizinhos exatos
      */
-    public static int[][] computeGroundTruth(float[][] queries, float[][] references, int k) {
+    public static int[][] computeGroundTruth(float[][] queries, float[] referencesFlat, int k) {
         // BruteForceIndex só precisa dos vetores; labels não são usadas para a busca
-        BruteForceIndex brute = new BruteForceIndex(references, new byte[references.length]);
+        int N = referencesFlat.length / 14;
+        BruteForceIndex brute = new BruteForceIndex(referencesFlat, new byte[N]);
         int nQueries = queries.length;
         int[][] groundTruth = new int[nQueries][k];
 

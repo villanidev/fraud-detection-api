@@ -54,9 +54,9 @@ public class PreProcessorService {
 
         System.out.println("[preprocess] Loading references...");
         DataReader.ReferenceData ref = dataReader.loadReferences(referencesGz);
-        float[][] vectors = ref.vectors();
+        float[] vectorsFlat = ref.flat();
         byte[]   labels  = ref.labels();
-        int N = vectors.length;
+        int N = ref.count();
         System.out.printf("[preprocess] Loaded %,d vectors%n", N);
 
         float[] norms    = dataReader.loadNormalization(normalizationJson);
@@ -65,21 +65,21 @@ public class PreProcessorService {
         // Train IVF centroids
         System.out.println("[preprocess] Training IVF K-Means (K=" + K + ")...");
         KMeans kMeans = new KMeans();
-        float[][] centroids = kMeans.cluster(vectors, K, SEED);
+        float[][] centroids = kMeans.cluster(vectorsFlat, N, K, SEED);
 
         // Assign vectors to clusters
         System.out.println("[preprocess] Assigning vectors to clusters...");
-        int[][] idsByCluster = kMeans.assign(vectors, centroids);
+        int[][] idsByCluster = kMeans.assignFlat(vectorsFlat, N, centroids);
 
         // Train PQ codebooks
         System.out.println("[preprocess] Training Product Quantizer...");
         ProductQuantizer pq = new ProductQuantizer(kMeans);
-        pq.train(vectors, SEED);
+        pq.train(vectorsFlat, N, SEED);
 
         // Encode all vectors
         System.out.println("[preprocess] Encoding vectors...");
         byte[][] allCodes = new byte[N][];
-        for (int i = 0; i < N; i++) allCodes[i] = pq.encode(vectors[i]);
+        for (int i = 0; i < N; i++) allCodes[i] = pq.encodeFlat(vectorsFlat, i);
 
         // Build per-cluster code arrays
         byte[][][] codesByCluster = new byte[K][][];
@@ -94,7 +94,7 @@ public class PreProcessorService {
         // Write data.bin
         System.out.println("[preprocess] Writing " + outputBin + "...");
         dataWriter.write(outputBin, norms, mccRisks, pq,
-                centroids, vectors, labels, idsByCluster, codesByCluster);
+            centroids, ref.flat(), labels, idsByCluster, codesByCluster);
         System.out.println("[preprocess] Done.");
     }
 }

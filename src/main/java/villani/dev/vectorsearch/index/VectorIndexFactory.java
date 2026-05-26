@@ -54,7 +54,7 @@ public class VectorIndexFactory {
      * @param centroids      IVF centroids [K][14]
      * @param idsByCluster   inverted lists [K][count]
      * @param codesByCluster PQ codes per cluster [K][count][7]
-     * @param vectors        original vectors [N][14] (used by BruteForce only)
+    * @param vectors        original vectors as flat array (row-major) (used by BruteForce only)
      * @param labels         reference labels [N] — 0=legit, 1=fraud
      * @param pq             trained ProductQuantizer (used by IVF-PQ)
      * @param vectorsChannel    memory-mapped data.bin (for reranking; may be null if rerank=false)
@@ -64,7 +64,7 @@ public class VectorIndexFactory {
     public VectorIndex create(float[][] centroids,
                               int[][] idsByCluster,
                               byte[][] codesByCluster,
-                              float[][] vectors,
+                              float[] vectors,
                               byte[] labels,
                               ProductQuantizer pq,
                               FileChannel vectorsChannel,   // substitui MappedByteBuffer
@@ -93,7 +93,7 @@ public class VectorIndexFactory {
     public VectorIndex create(float[][] centroids,
                               int[][] idsByCluster,
                               byte[][] codesByCluster,
-                              float[][] vectors,
+                              float[] vectors,
                               byte[] labels,
                               ProductQuantizer pq,
                               FileChannel vectorsChannel,

@@ -50,7 +50,7 @@ public class DataWriter {
      * @param mccRisks     MCC risk table float[10000]
      * @param pq           trained ProductQuantizer (codebooks already set)
      * @param centroids    IVF centroids float[K][14]
-     * @param vectors      original reference vectors float[N][14]
+     * @param vectorsFlat      original reference vectors float[N][14]
      * @param labels       labels byte[N]  0=legit, 1=fraud
      * @param idsByCluster inverted list IDs int[K][]
      * @param codesByCluster PQ codes per cluster byte[K][][7]
@@ -60,13 +60,13 @@ public class DataWriter {
                       float[] mccRisks,
                       ProductQuantizer pq,
                       float[][] centroids,
-                      float[][] vectors,
+                      float[] vectorsFlat,
                       byte[] labels,
                       int[][] idsByCluster,
                       byte[][][] codesByCluster) throws IOException {
 
         int K = centroids.length;
-        int N = vectors.length;
+        int N = vectorsFlat.length / DIMS;
 
         // Pre-compute vectorsOffset:
         // header(24) + norms(28) + mcc(40000) + codebooks(14336) + centroids(K*14*4)
@@ -109,7 +109,8 @@ public class DataWriter {
 
             // --- Original vectors (at vectorsOffset) ---
             for (int i = 0; i < N; i++) {
-                for (int d = 0; d < DIMS; d++) out.writeFloat(vectors[i][d]);
+                int base = i * DIMS;
+                for (int d = 0; d < DIMS; d++) out.writeFloat(vectorsFlat[base + d]);
             }
 
             // --- Labels ---

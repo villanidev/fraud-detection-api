@@ -30,11 +30,11 @@ public class KMeans {
         }
     }
 
-    private static final int ITERATIONS_IVF = 20;          // para os centróides principais
-    private static final int ITERATIONS_PQ  = 50;          // para os codebooks PQ (mais iterações = melhor)
+    private static final int ITERATIONS_IVF = 20;          // para os centroides principais
+    private static final int ITERATIONS_PQ  = 30;          // para os codebooks PQ (mais iterações = melhor)
     private static final int N_TRIALS_IVF  = 1;            // IVF se beneficia menos de múltiplos trials
     private static final int N_TRIALS_PQ   = 3;            // PQ é mais sensível, 3 trials já ajudam
-    private static final int SAMPLE_SIZE   = 300_000;      // usar 300k amostras para IVF (defina 0 para todos)
+    private static final int SAMPLE_SIZE   = 30_000;      // usar amostras para IVF (defina 0 para todos)
 
     private final ExecutorService executor = Executors.newWorkStealingPool();
 
@@ -53,6 +53,40 @@ public class KMeans {
             trainVectors = sample(vectors, seed);
             System.out.printf("[KMeans] IVF: Using %d samples (total %d)%n", SAMPLE_SIZE, vectors.length);
         }
+        float[][] bestCentroids = null;
+        double bestInertia = Double.MAX_VALUE;
+
+        for (int trial = 0; trial < N_TRIALS_IVF; trial++) {
+            long trialSeed = seed + trial;
+            float[][] centroids = initializeCentroids(trainVectors, k, trialSeed);
+            double inertia = runKMeans(trainVectors, centroids, ITERATIONS_IVF);
+            if (inertia < bestInertia) {
+                bestInertia = inertia;
+                bestCentroids = centroids;
+            }
+        }
+        return bestCentroids;
+    }
+
+    /**
+     * Overload that accepts a flat array row-major: length = N * dim (dim=14).
+     * Only materializes a sample (SAMPLE_SIZE) when necessary to avoid allocating the
+     * full matrix for very large N.
+     */
+    public float[][] cluster(float[] vectorsFlat, int N, int k, long seed) {
+        float[][] trainVectors = null;
+        if (SAMPLE_SIZE > 0 && N > SAMPLE_SIZE) {
+            trainVectors = sampleFlat(vectorsFlat, N, seed);
+            System.out.printf("[KMeans] IVF: Using %d samples (total %d)%n", SAMPLE_SIZE, N);
+        } else {
+            // materialize full matrix only if N is small enough
+            int dim = 14;
+            trainVectors = new float[N][dim];
+            for (int i = 0; i < N; i++) {
+                System.arraycopy(vectorsFlat, i * dim, trainVectors[i], 0, dim);
+            }
+        }
+
         float[][] bestCentroids = null;
         double bestInertia = Double.MAX_VALUE;
 
@@ -97,6 +131,50 @@ public class KMeans {
             clusters[c][pos[c]++] = i;
         }
         return clusters;
+    }
+
+    /** Assign using flat vectors (row-major) without materializing full matrix. */
+    public int[][] assignFlat(float[] vectorsFlat, int N, float[][] centroids) {
+        int n = N;
+        int k = centroids.length;
+        int dim = centroids[0].length;
+        int[][] clusters = new int[k][];
+        int[] counts = new int[k];
+        int[] assignment = new int[n];
+
+        for (int i = 0; i < n; i++) {
+            int nearest = nearestCentroidFlat(vectorsFlat, i, centroids, dim);
+            assignment[i] = nearest;
+            counts[nearest]++;
+        }
+        for (int c = 0; c < k; c++) {
+            clusters[c] = new int[counts[c]];
+        }
+        int[] pos = new int[k];
+        for (int i = 0; i < n; i++) {
+            int c = assignment[i];
+            clusters[c][pos[c]++] = i;
+        }
+        return clusters;
+    }
+
+    private int nearestCentroidFlat(float[] flat, int idx, float[][] centroids, int dim) {
+        int base = idx * dim;
+        int best = 0;
+        double bestDist = Double.MAX_VALUE;
+        for (int c = 0; c < centroids.length; c++) {
+            double dist = 0.0;
+            float[] cent = centroids[c];
+            for (int d = 0; d < dim; d++) {
+                double diff = flat[base + d] - cent[d];
+                dist += diff * diff;
+            }
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = c;
+            }
+        }
+        return best;
     }
 
     /**
@@ -304,6 +382,22 @@ public class KMeans {
             int j = rnd.nextInt(i + 1);
             if (j < SAMPLE_SIZE) {
                 sample[j] = vectors[i];
+            }
+        }
+        return sample;
+    }
+
+    private float[][] sampleFlat(float[] flat, int N, long seed) {
+        float[][] sample = new float[SAMPLE_SIZE][14];
+        Random rnd = new Random(seed);
+        // copy first SAMPLE_SIZE
+        for (int i = 0; i < SAMPLE_SIZE; i++) {
+            System.arraycopy(flat, i * 14, sample[i], 0, 14);
+        }
+        for (int i = SAMPLE_SIZE; i < N; i++) {
+            int j = rnd.nextInt(i + 1);
+            if (j < SAMPLE_SIZE) {
+                System.arraycopy(flat, i * 14, sample[j], 0, 14);
             }
         }
         return sample;
