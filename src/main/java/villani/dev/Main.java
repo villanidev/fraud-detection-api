@@ -113,15 +113,17 @@ public class Main {
         DataReader dataReader = Services.get(DataReader.class);
         System.out.println("[evaluation] Loading references...");
         DataReader.ReferenceData ref = dataReader.loadReferences(Path.of("src/main/resources/references.json.gz"));
-        float[][] vectors = ref.vectors();
+        float[] vectorsFlat = ref.flat();
+        int N = ref.count();
         int[] kCandidates = { 1024, 1088, 1152, 1216, 1280, 1344, 1408, 1472, 1536, 1600, 1664, 1728, 1792, 1856, 1920, 1984, 2048 };
         System.out.println("[evaluation] Running KMeans evaluation...");
         KMeansEvaluator evaluator = new KMeansEvaluator(
-                vectors,              // seus 3M vetores
-                kCandidates,
-                42L,                  // seed base
-                300_000,              // amostra fixa (use 0 para todos, mas será lento)
-                3                     // trials por K para média
+            vectorsFlat,          // seus 3M vetores (flat)
+            N,
+            kCandidates,
+            42L,                  // seed base
+            300_000,              // amostra fixa (use 0 para todos, mas será lento)
+            3                     // trials por K para média
         );
 
         Map<Integer, Double> results = evaluator.evaluate();
@@ -139,19 +141,23 @@ public class Main {
         DataReader dataReader = Services.get(DataReader.class);
         System.out.println("[recall] Loading references...");
         DataReader.ReferenceData ref = dataReader.loadReferences(Path.of("src/main/resources/references.json.gz"));
-        float[][] vectors = ref.vectors();
+        float[] vectorsFlat = ref.flat();
         byte[] labels = ref.labels();
-        float[][] sampleVectors =  new Random(42L)
-                .ints(0, vectors.length) // Gera índices aleatórios no tamanho da matriz
-                .distinct()              // Garante que não haverá índices duplicados
-                .limit(10000)            // Limita para os 10.000 itens desejados
-                .mapToObj(i -> vectors[i])
-                .toArray(float[][]::new);
+        int N = ref.count();
+        // build sampleVectors (10k) by copying from flat array without materializing full matrix
+        int sampleSize = 10_000;
+        float[][] sampleVectors = new float[sampleSize][14];
+        Random rnd = new Random(42L);
+        // generate distinct indices
+        int[] indices = rnd.ints(0, N).distinct().limit(sampleSize).toArray();
+        for (int i = 0; i < sampleSize; i++) {
+            System.arraycopy(vectorsFlat, indices[i] * 14, sampleVectors[i], 0, 14);
+        }
 
         int[] nprobes = { 1, 2, 4, 8, 16 };
         int[] candidates = { 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 100 };
 
-        int[][] groundTruth = RecallEvaluator.computeGroundTruth(sampleVectors, vectors, 5);
+        int[][] groundTruth = RecallEvaluator.computeGroundTruth(sampleVectors, ref.flat(), 5);
 
         System.out.println("nprobe,candidates,Recall@5,Latência(ms),QPS");
         for (int np : nprobes) {

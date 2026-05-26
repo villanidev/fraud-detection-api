@@ -19,13 +19,24 @@ public class KMeansEvaluator {
      * @param sampleSize  tamanho da amostra fixa usada em todos os testes (ex: 300000)
      * @param trialsPerK  quantas execuções por K para média (ex: 3)
      */
-    public KMeansEvaluator(float[][] fullVectors, int[] kCandidates,
+    public KMeansEvaluator(float[] fullVectorsFlat, int N, int[] kCandidates,
                            long baseSeed, int sampleSize, int trialsPerK) {
         this.kCandidates = kCandidates.clone();
         this.baseSeed = baseSeed;
         this.trialsPerK = trialsPerK;
         this.verbose = true;
-        this.evaluationVectors = sample(fullVectors, sampleSize, baseSeed);
+        // build evaluation sample from flat array
+        if (sampleSize > 0 && N > sampleSize) {
+            this.evaluationVectors = sampleFlat(fullVectorsFlat, N, sampleSize, baseSeed);
+            System.out.printf("[KMeansEvaluator] Using %d-sample from %d vectors%n", sampleSize, N);
+        } else {
+            // materialize full matrix
+            int dim = 14;
+            this.evaluationVectors = new float[N][dim];
+            for (int i = 0; i < N; i++) {
+                System.arraycopy(fullVectorsFlat, i * dim, this.evaluationVectors[i], 0, dim);
+            }
+        }
     }
 
     /**
@@ -141,6 +152,21 @@ public class KMeansEvaluator {
             int j = rnd.nextInt(i + 1);
             if (j < sampleSize) {
                 sample[j] = vectors[i];
+            }
+        }
+        return sample;
+    }
+
+    private static float[][] sampleFlat(float[] flat, int N, int sampleSize, long seed) {
+        float[][] sample = new float[sampleSize][14];
+        Random rnd = new Random(seed);
+        for (int i = 0; i < sampleSize; i++) {
+            System.arraycopy(flat, i * 14, sample[i], 0, 14);
+        }
+        for (int i = sampleSize; i < N; i++) {
+            int j = rnd.nextInt(i + 1);
+            if (j < sampleSize) {
+                System.arraycopy(flat, i * 14, sample[j], 0, 14);
             }
         }
         return sample;

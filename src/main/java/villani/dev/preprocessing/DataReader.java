@@ -28,7 +28,22 @@ public class DataReader {
     /**
      * Container for the fully loaded reference dataset.
      */
-    public record ReferenceData(float[][] vectors, byte[] labels) {}
+    private static final int DIMS = 14;
+
+    public record ReferenceData(float[] vectorsFlat, int count, byte[] labels) {
+
+        public float get(int idx, int dim) {
+            return vectorsFlat[idx * DIMS + dim];
+        }
+
+        public int count() {
+            return count;
+        }
+
+        public float[] flat() {
+            return vectorsFlat;
+        }
+    }
 
     /**
      * Streams references.json.gz and extracts vectors + labels in a single pass.
@@ -68,11 +83,16 @@ public class DataReader {
         }
 
         int N = vectorList.size();
-        float[][] vectors = vectorList.toArray(new float[0][]);
+        float[] flat = new float[N * DIMS];
+        for (int i = 0; i < N; i++) {
+            float[] src = vectorList.get(i);
+            System.arraycopy(src, 0, flat, i * DIMS, DIMS);
+        }
+
         byte[] labels = new byte[N];
         for (int i = 0; i < N; i++) labels[i] = labelList.get(i);
 
-        return new ReferenceData(vectors, labels);
+        return new ReferenceData(flat, N, labels);
     }
 
     /**

@@ -57,7 +57,7 @@ public class VectorStore {
     private volatile float[][] centroids;
     private volatile int[][] idsByCluster;
     private volatile byte[][] codesByCluster;
-    private volatile float[][] vectors;
+    private volatile float[] vectors;
     private volatile byte[] labels;
     private volatile ProductQuantizer pq;
     private volatile int vectorCount;
@@ -116,15 +116,16 @@ public class VectorStore {
             channel.position(vectorsOffset);
 
             // --- Original vectors (opcional, só se brute-force) ---
-            float[][] vectors = null;
+            float[] vectorsFlat = null;
             if (factory.isBruteForce()) {
-                vectors = new float[N][DIMS];
+                vectorsFlat = new float[N * DIMS];
                 for (int i = 0; i < N; i++) {
+                    int base = i * DIMS;
                     for (int d = 0; d < DIMS; d++) {
-                        vectors[i][d] = readFloat(channel, readBuf);
+                        vectorsFlat[base + d] = readFloat(channel, readBuf);
                     }
                 }
-                this.vectors = vectors;
+                this.vectors = vectorsFlat;
             } else {
                 // Pula a seção de vetores (não usada no ivf_pq)
                 long vectorSectionBytes = (long) N * DIMS * Float.BYTES;
@@ -163,7 +164,7 @@ public class VectorStore {
             this.vectorCount = N;
 
             // Cria o índice padrão com os parâmetros do config
-            this.index = factory.create(centroids, idsByCluster, codesByCluster,
+                this.index = factory.create(centroids, idsByCluster, codesByCluster,
                     vectors, labels, pq, this.vectorsChannel, this.vectorsOffset, N);
             this.norms = loadedNorms;
             this.mccRisk = loadedMcc;
