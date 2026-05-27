@@ -7,15 +7,15 @@ package villani.dev.vectorsearch.index;
 public interface VectorIndex extends AutoCloseable {
 
     /**
-     * Finds the k nearest neighbors of the query vector.
+     * Finds the topK nearest neighbors of the query vector.
      *
      * @param query     14-dimensional query vector
-     * @param k         number of neighbors to return
+     * @param topK         number of neighbors to return
      * @param neighbors pre-allocated array to receive neighbor IDs
      * @param distances pre-allocated array to receive squared distances
-     * @return number of fraud labels among the k neighbors
+     * @return number of fraud labels among the topK neighbors
      */
-    int search(float[] query, int k, int[] neighbors, float[] distances);
+    int search(float[] query, int topK, int[] neighbors, float[] distances);
 
     /** Reference labels: 0=legit, 1=fraud. */
     byte[] getLabels();

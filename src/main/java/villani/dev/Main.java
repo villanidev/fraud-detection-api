@@ -19,6 +19,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Random;
+import java.util.stream.IntStream;
 
 /**
  * Main class responsible for starting the service registry.
@@ -115,14 +116,16 @@ public class Main {
         DataReader.ReferenceData ref = dataReader.loadReferences(Path.of("src/main/resources/references.json.gz"));
         float[] vectorsFlat = ref.flat();
         int N = ref.count();
-        int[] kCandidates = { 1024, 1088, 1152, 1216, 1280, 1344, 1408, 1472, 1536, 1600, 1664, 1728, 1792, 1856, 1920, 1984, 2048 };
-        System.out.println("[evaluation] Running KMeans evaluation...");
+        int[] kCandidates = IntStream.iterate(1024, n -> n <= 4096, n -> n + 64).toArray();
+
+        System.out.printf("[evaluation] Running KMeans evaluation with cluster candidates (%s)...%n",
+                Arrays.toString(kCandidates));
         KMeansEvaluator evaluator = new KMeansEvaluator(
             vectorsFlat,          // seus 3M vetores (flat)
             N,
             kCandidates,
             42L,                  // seed base
-            300_000,              // amostra fixa (use 0 para todos, mas será lento)
+            500_000,              // amostra fixa (use 0 para todos, mas será lento)
             3                     // trials por K para média
         );
 
@@ -154,7 +157,7 @@ public class Main {
             System.arraycopy(vectorsFlat, indices[i] * 14, sampleVectors[i], 0, 14);
         }
 
-        int[] nprobes = { 1, 2, 4, 8, 16 };
+        int[] nprobes = { 1, 2, 4, 8, 16, 32 };
         int[] candidates = { 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 100 };
 
         int[][] groundTruth = RecallEvaluator.computeGroundTruth(sampleVectors, ref.flat(), 5);

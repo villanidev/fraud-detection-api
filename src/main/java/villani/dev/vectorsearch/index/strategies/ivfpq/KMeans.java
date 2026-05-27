@@ -30,11 +30,11 @@ public class KMeans {
         }
     }
 
-    private static final int ITERATIONS_IVF = 20;          // para os centroides principais
+    private static final int ITERATIONS_IVF = 25;          // para os centroides principais
     private static final int ITERATIONS_PQ  = 30;          // para os codebooks PQ (mais iterações = melhor)
     private static final int N_TRIALS_IVF  = 1;            // IVF se beneficia menos de múltiplos trials
     private static final int N_TRIALS_PQ   = 3;            // PQ é mais sensível, 3 trials já ajudam
-    private static final int SAMPLE_SIZE   = 30_000;      // usar amostras para IVF (defina 0 para todos)
+    private static final int SAMPLE_SIZE   = 500_000;      // usar amostras para IVF (defina 0 para todos)
 
     private final ExecutorService executor = Executors.newWorkStealingPool();
 

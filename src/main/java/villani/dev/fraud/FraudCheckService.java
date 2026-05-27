@@ -127,7 +127,7 @@ public class FraudCheckService {
         int[] neighbors = new int[5];
         float[] distances = new float[5];
         int fraudCount = vectorStore.search(emb, 5, neighbors, distances);
-
+        //System.out.println("final: " +fraudCount);
         // 3 Score ta cacheado
         return DecisionResponse.get(fraudCount);
     }

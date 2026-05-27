@@ -21,7 +21,7 @@ public class IVFPQIndex implements VectorIndex {
     private final float[] centroidsFlat;   // [K * DIMS] — flat for sequential access, no pointer chasing
     private final int K;
     private final int[][] idsByCluster;    // [K][count]
-    private final byte[][] codesByCluster; // [K][count*M] flat — avoids 3M byte[7] object headers
+    private final short[][] codesByCluster; // [K][count*M] flat — avoids 3M short[7] object headers
     private final byte[] labels;           // [N] — 0=legit, 1=fraud
     private final ProductQuantizer pq;
     private final int nprobe;
@@ -35,7 +35,7 @@ public class IVFPQIndex implements VectorIndex {
 
     public IVFPQIndex(float[][] centroids,
                       int[][] idsByCluster,
-                      byte[][] codesByCluster,
+                      short[][] codesByCluster,
                       byte[] labels,
                       ProductQuantizer pq,
                       int nprobe,
@@ -58,10 +58,9 @@ public class IVFPQIndex implements VectorIndex {
     }
 
     @Override
-    public int search(float[] query, int k, int[] neighbors, float[] distances) {
-        int actualProbes = Math.min(nprobe, K);
-        int actualCandidates = candidates;
-
+    public int search(float[] query, int topK, int[] neighbors, float[] distances) {
+        //System.out.println("ivfpq - probes: " + nprobe);
+        //System.out.println("ivfpq - candidatos: " + candidates);
         // --- Step 1: Find nprobe nearest centroids (reuse ThreadLocal scratch arrays) ---
         float[] centroidDist  = tlCentroidDist.get();
         int[] centroidOrder = tlCentroidOrder.get();
@@ -69,7 +68,7 @@ public class IVFPQIndex implements VectorIndex {
             centroidDist[c]  = squaredDistance(query, centroidsFlat, c * DIMS);
             centroidOrder[c] = c;
         }
-        partialSort(centroidOrder, centroidDist, actualProbes);
+        partialSort(centroidOrder, centroidDist, nprobe);
 
         // --- Step 2: Precompute ADC table (reuse ThreadLocal scratch array) ---
         float[][] adcTable = tlAdcTable.get();
@@ -79,24 +78,25 @@ public class IVFPQIndex implements VectorIndex {
         Arrays.fill(distances, Float.MAX_VALUE);
         Arrays.fill(neighbors, -1);
 
-        for (int p = 0; p < actualProbes; p++) {
+        for (int p = 0; p < nprobe; p++) {
             int clusterIdx = centroidOrder[p];
             int[] ids = idsByCluster[clusterIdx];
-            byte[] codes = codesByCluster[clusterIdx]; // flat: codes for vector i at offset i*M
+            short[] codes = codesByCluster[clusterIdx]; // flat: codes for vector i at offset i*M
 
             for (int i = 0; i < ids.length; i++) {
                 float approxDist = pq.adcDistance(adcTable, codes, i * ProductQuantizer.M);
-                if (approxDist < distances[actualCandidates - 1]) {
-                    insertSorted(neighbors, distances, actualCandidates, ids[i], approxDist);
+                if (approxDist < distances[candidates - 1]) {
+                    insertSorted(neighbors, distances, candidates, ids[i], approxDist);
                 }
             }
         }
 
         // --- Step 4: Count fraud labels in top-k ---
         int fraudCount = 0;
-        for (int i = 0; i < k; i++) {
+        for (int i = 0; i < topK; i++) {
             if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
         }
+        //System.out.println("ivfpq - fraudes: " + fraudCount);
         return fraudCount;
     }
 

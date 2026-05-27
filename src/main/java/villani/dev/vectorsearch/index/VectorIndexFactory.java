@@ -29,9 +29,9 @@ import java.nio.channels.FileChannel;
 public class VectorIndexFactory {
 
     private static final String DEFAULT_INDEX = "ivf_pq";
-    private static final int DEFAULT_NPROBE = 24;
-    private static final int DEFAULT_CANDIDATES = 50;
-    private static final boolean DEFAULT_RERANK = false;
+    private static final int DEFAULT_NPROBE = 16;
+    private static final int DEFAULT_CANDIDATES = 15;
+    private static final boolean DEFAULT_RERANK = true;
 
     private final String indexType;
     private final int nprobe;
@@ -53,7 +53,7 @@ public class VectorIndexFactory {
      *
      * @param centroids      IVF centroids [K][14]
      * @param idsByCluster   inverted lists [K][count]
-     * @param codesByCluster PQ codes per cluster [K][count][7]
+    * @param codesByCluster PQ codes per cluster [K][count][M]
     * @param vectors        original vectors as flat array (row-major) (used by BruteForce only)
      * @param labels         reference labels [N] — 0=legit, 1=fraud
      * @param pq             trained ProductQuantizer (used by IVF-PQ)
@@ -63,7 +63,7 @@ public class VectorIndexFactory {
      */
     public VectorIndex create(float[][] centroids,
                               int[][] idsByCluster,
-                              byte[][] codesByCluster,
+                              short[][] codesByCluster,
                               float[] vectors,
                               byte[] labels,
                               ProductQuantizer pq,
@@ -92,7 +92,7 @@ public class VectorIndexFactory {
      */
     public VectorIndex create(float[][] centroids,
                               int[][] idsByCluster,
-                              byte[][] codesByCluster,
+                              short[][] codesByCluster,
                               float[] vectors,
                               byte[] labels,
                               ProductQuantizer pq,
@@ -104,7 +104,7 @@ public class VectorIndexFactory {
 
         VectorIndex base = switch (indexType) {
             case "brute_force" -> new BruteForceIndex(vectors, labels);
-            case "ivf_pq" -> new IVFPQIndex(centroids, idsByCluster, codesByCluster,
+                case "ivf_pq" -> new IVFPQIndex(centroids, idsByCluster, codesByCluster,
                     labels, pq, nprobe, candidates);
             case "hnsw" -> new HNSWIndex(labels);
             default -> throw new IllegalArgumentException("Unknown index type: " + indexType);

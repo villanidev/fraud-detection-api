@@ -22,20 +22,20 @@ public class BruteForceIndex implements VectorIndex {
     }
 
     @Override
-    public int search(float[] query, int k, int[] neighbors, float[] distances) {
+    public int search(float[] query, int topK, int[] neighbors, float[] distances) {
         Arrays.fill(distances, Float.MAX_VALUE);
         Arrays.fill(neighbors, -1);
 
         int N = labels.length;
         for (int i = 0; i < N; i++) {
             float d = squaredDistance(query, vectorsFlat, i);
-            if (d < distances[k - 1]) {
-                insertSorted(neighbors, distances, k, i, d);
+            if (d < distances[topK - 1]) {
+                insertSorted(neighbors, distances, topK, i, d);
             }
         }
 
         int fraudCount = 0;
-        for (int i = 0; i < k; i++) {
+        for (int i = 0; i < topK; i++) {
             if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
         }
         return fraudCount;

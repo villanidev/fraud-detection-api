@@ -10,10 +10,10 @@ public class ProductQuantizer {
 
     public static final int M = 7;       // subquantizers (one per subspace)
     public static final int SUB_D = 2;   // dimensions per subspace (14/7)
-    public static final int CODEBOOK_SIZE = 256;
+    public static final int CODEBOOK_SIZE = 4096;
 
     private final KMeans kMeans;
-    private float[][][] codebooks; // [M][256][SUB_D] — kept for serialization + encode()
+    private float[][][] codebooks; // [M][CODEBOOK_SIZE][SUB_D] — kept for serialization + encode()
     private float[][] cbFlat;      // [M][CODEBOOK_SIZE * SUB_D] — interleaved, contiguous, cache-friendly
 
     public ProductQuantizer(KMeans kMeans) {
@@ -73,27 +73,27 @@ public class ProductQuantizer {
     /**
      * Encodes a 14D vector to 7 bytes (one centroid index per subspace).
      */
-    public byte[] encode(float[] vec) {
-        byte[] codes = new byte[M];
+    public short[] encode(float[] vec) {
+        short[] codes = new short[M];
         float[] sub = new float[SUB_D];
         for (int m = 0; m < M; m++) {
             sub[0] = vec[m * SUB_D];
             sub[1] = vec[m * SUB_D + 1];
-            codes[m] = (byte) kMeans.nearestSub(sub, codebooks[m], SUB_D);
+            codes[m] = (short) kMeans.nearestSub(sub, codebooks[m], SUB_D);
         }
         return codes;
     }
 
     /** Encode using flat array without allocating small temporary float[14] per vector. */
-    public byte[] encodeFlat(float[] flat, int idx) {
-        byte[] codes = new byte[M];
+    public short[] encodeFlat(float[] flat, int idx) {
+        short[] codes = new short[M];
         float[] sub = new float[SUB_D];
         int base = idx * (M * SUB_D); // 14
         for (int m = 0; m < M; m++) {
             int off = base + m * SUB_D;
             sub[0] = flat[off];
             sub[1] = flat[off + 1];
-            codes[m] = (byte) kMeans.nearestSub(sub, codebooks[m], SUB_D);
+            codes[m] = (short) kMeans.nearestSub(sub, codebooks[m], SUB_D);
         }
         return codes;
     }
@@ -134,14 +134,14 @@ public class ProductQuantizer {
      * using the precomputed ADC table. Offset-based variant for flat byte[] storage
      * (avoids 3M small byte[7] object allocations and their JVM header overhead).
      */
-    public float adcDistance(float[][] table, byte[] codes, int offset) {
-        return table[0][codes[offset]     & 0xFF]
-             + table[1][codes[offset + 1] & 0xFF]
-             + table[2][codes[offset + 2] & 0xFF]
-             + table[3][codes[offset + 3] & 0xFF]
-             + table[4][codes[offset + 4] & 0xFF]
-             + table[5][codes[offset + 5] & 0xFF]
-             + table[6][codes[offset + 6] & 0xFF];
+    public float adcDistance(float[][] table, short[] codes, int offset) {
+        return table[0][codes[offset]     & 0xFFFF]
+             + table[1][codes[offset + 1] & 0xFFFF]
+             + table[2][codes[offset + 2] & 0xFFFF]
+             + table[3][codes[offset + 3] & 0xFFFF]
+             + table[4][codes[offset + 4] & 0xFFFF]
+             + table[5][codes[offset + 5] & 0xFFFF]
+             + table[6][codes[offset + 6] & 0xFFFF];
     }
 
     public float[][][] getCodebooks() {

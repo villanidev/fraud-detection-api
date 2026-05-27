@@ -78,14 +78,14 @@ public class PreProcessorService {
 
         // Encode all vectors
         System.out.println("[preprocess] Encoding vectors...");
-        byte[][] allCodes = new byte[N][];
+        short[][] allCodes = new short[N][];
         for (int i = 0; i < N; i++) allCodes[i] = pq.encodeFlat(vectorsFlat, i);
 
         // Build per-cluster code arrays
-        byte[][][] codesByCluster = new byte[K][][];
+        short[][][] codesByCluster = new short[K][][];
         for (int c = 0; c < K; c++) {
             int[] ids = idsByCluster[c];
-            codesByCluster[c] = new byte[ids.length][];
+            codesByCluster[c] = new short[ids.length][];
             for (int i = 0; i < ids.length; i++) {
                 codesByCluster[c][i] = allCodes[ids[i]];
             }

@@ -25,7 +25,7 @@ import java.nio.file.Path;
  *
  *   [ Normalization — 7 × 4 = 28 bytes ]
  *   [ MCC table    — 10000 × 4 = 40000 bytes ]
- *   [ PQ codebooks — M × 256 × SUB_D × 4 = 14336 bytes ]
+    *   [ PQ codebooks — M × CODEBOOK_SIZE × SUB_D × 4 bytes ]
  *   [ IVF centroids — K × 14 × 4 bytes ]
  *   [ Original vectors — N × 14 × 4 bytes ]  ← vectorsOffset
  *   [ Labels           — N × 1 byte ]
@@ -54,6 +54,7 @@ public class DataWriter {
      * @param labels       labels byte[N]  0=legit, 1=fraud
      * @param idsByCluster inverted list IDs int[K][]
      * @param codesByCluster PQ codes per cluster byte[K][][7]
+    * @param codesByCluster PQ codes per cluster short[K][][M]
      */
     public void write(Path outputPath,
                       float[] norms,
@@ -63,7 +64,7 @@ public class DataWriter {
                       float[] vectorsFlat,
                       byte[] labels,
                       int[][] idsByCluster,
-                      byte[][][] codesByCluster) throws IOException {
+                      short[][][] codesByCluster) throws IOException {
 
         int K = centroids.length;
         int N = vectorsFlat.length / DIMS;
@@ -122,7 +123,8 @@ public class DataWriter {
                 out.writeInt(count);
                 for (int i = 0; i < count; i++) {
                     out.writeInt(idsByCluster[c][i]);
-                    out.write(codesByCluster[c][i]); // 7 bytes
+                    short[] code = codesByCluster[c][i];
+                    for (int m = 0; m < ProductQuantizer.M; m++) out.writeShort(code[m]);
                 }
             }
         }
