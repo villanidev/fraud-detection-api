@@ -59,8 +59,6 @@ public class IVFPQIndex implements VectorIndex {
 
     @Override
     public int search(float[] query, int topK, int[] neighbors, float[] distances) {
-        //System.out.println("ivfpq - probes: " + nprobe);
-        //System.out.println("ivfpq - candidatos: " + candidates);
         // --- Step 1: Find nprobe nearest centroids (reuse ThreadLocal scratch arrays) ---
         float[] centroidDist  = tlCentroidDist.get();
         int[] centroidOrder = tlCentroidOrder.get();
@@ -97,6 +95,50 @@ public class IVFPQIndex implements VectorIndex {
             if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
         }
         //System.out.println("ivfpq - fraudes: " + fraudCount);
+        return fraudCount;
+    }
+
+    /**
+     * Search variant that allows caller to override `nprobe` and `candidates` per-call.
+     * This avoids creating new index instances when tuning search parameters at runtime.
+     */
+    public int searchWithParams(float[] query, int topK, int nprobeParam, int candidatesParam, int[] neighbors, float[] distances) {
+        // --- Step 1: Find nprobe nearest centroids (reuse ThreadLocal scratch arrays) ---
+        float[] centroidDist  = tlCentroidDist.get();
+        int[] centroidOrder = tlCentroidOrder.get();
+        for (int c = 0; c < K; c++) {
+            centroidDist[c]  = squaredDistance(query, centroidsFlat, c * DIMS);
+            centroidOrder[c] = c;
+        }
+        partialSort(centroidOrder, centroidDist, Math.min(nprobeParam, K));
+
+        // --- Step 2: Precompute ADC table (reuse ThreadLocal scratch array) ---
+        float[][] adcTable = tlAdcTable.get();
+        pq.buildAdcTable(query, adcTable);
+
+        // --- Step 3: Scan every cluster ---
+        Arrays.fill(distances, Float.MAX_VALUE);
+        Arrays.fill(neighbors, -1);
+
+        int actualProbes = Math.min(nprobeParam, K);
+        for (int p = 0; p < actualProbes; p++) {
+            int clusterIdx = centroidOrder[p];
+            int[] ids = idsByCluster[clusterIdx];
+            short[] codes = codesByCluster[clusterIdx]; // flat: codes for vector i at offset i*M
+
+            for (int i = 0; i < ids.length; i++) {
+                float approxDist = pq.adcDistance(adcTable, codes, i * ProductQuantizer.M);
+                if (approxDist < distances[Math.max(0, candidatesParam - 1)]) {
+                    insertSorted(neighbors, distances, candidatesParam, ids[i], approxDist);
+                }
+            }
+        }
+
+        // --- Step 4: Count fraud labels in top-k ---
+        int fraudCount = 0;
+        for (int i = 0; i < topK; i++) {
+            if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
+        }
         return fraudCount;
     }
 

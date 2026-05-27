@@ -29,14 +29,18 @@ import java.nio.channels.FileChannel;
 public class VectorIndexFactory {
 
     private static final String DEFAULT_INDEX = "ivf_pq";
-    private static final int DEFAULT_NPROBE = 16;
-    private static final int DEFAULT_CANDIDATES = 15;
+    private static final int DEFAULT_NPROBE = 4;
+    private static final int DEFAULT_CANDIDATES = 10;
     private static final boolean DEFAULT_RERANK = true;
+    private static final int DEFAULT_RERANK_NPROBE = 32;
+    private static final int DEFAULT_RERANK_CANDIDATES = 10;
 
     private final String indexType;
     private final int nprobe;
     private final int candidates;
     private final boolean rerank;
+    private final int rerankNprobe;
+    private final int rerankCandidates;
 
     @Service.Inject
     public VectorIndexFactory(Config config) {
@@ -44,7 +48,11 @@ public class VectorIndexFactory {
         this.indexType  = vs.get("index").asString().orElse(DEFAULT_INDEX);
         this.nprobe     = vs.get("nprobe").asInt().orElse(DEFAULT_NPROBE);
         this.candidates = vs.get("candidates").asInt().orElse(DEFAULT_CANDIDATES);
-        this.rerank     = vs.get("rerank").asBoolean().orElse(DEFAULT_RERANK);
+        // Expect nested `rerank` config with keys: enabled, nprobe, candidates
+        Config rerankNode = vs.get("rerank");
+        this.rerank = rerankNode.get("enabled").asBoolean().orElse(DEFAULT_RERANK);
+        this.rerankNprobe = rerankNode.get("nprobe").asInt().orElse(DEFAULT_RERANK_NPROBE);
+        this.rerankCandidates = rerankNode.get("candidates").asInt().orElse(DEFAULT_RERANK_CANDIDATES);
     }
 
     /**
@@ -81,7 +89,7 @@ public class VectorIndexFactory {
         };
 
         if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
-            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, candidates);
+            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, rerankNprobe, rerankCandidates);
         }
 
         return base;
@@ -111,7 +119,7 @@ public class VectorIndexFactory {
         };
 
         if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
-            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, candidates);
+            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, rerankNprobe, rerankCandidates);
         }
 
         return base;

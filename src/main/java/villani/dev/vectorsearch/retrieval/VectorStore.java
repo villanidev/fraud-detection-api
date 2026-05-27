@@ -13,6 +13,7 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
 
 /**
  * Facade for all vector data and search.
@@ -61,6 +62,13 @@ public class VectorStore {
     private volatile byte[] labels;
     private volatile ProductQuantizer pq;
     private volatile int vectorCount;
+    // Thread-local direct buffer and temp vector for exact rerank
+    private final ThreadLocal<ByteBuffer> tlReadBuffer = ThreadLocal.withInitial(() -> {
+        ByteBuffer b = ByteBuffer.allocateDirect(DIMS * Float.BYTES);
+        b.order(ByteOrder.BIG_ENDIAN);
+        return b;
+    });
+    private final ThreadLocal<float[]> tlVec = ThreadLocal.withInitial(() -> new float[DIMS]);
 
     @Service.Inject
     public VectorStore(VectorIndexFactory factory) {
