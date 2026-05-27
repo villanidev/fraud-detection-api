@@ -13,6 +13,7 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
 
 /**
  * Facade for all vector data and search.
@@ -61,6 +62,13 @@ public class VectorStore {
     private volatile byte[] labels;
     private volatile ProductQuantizer pq;
     private volatile int vectorCount;
+    // Thread-local direct buffer and temp vector for exact rerank
+    private final ThreadLocal<ByteBuffer> tlReadBuffer = ThreadLocal.withInitial(() -> {
+        ByteBuffer b = ByteBuffer.allocateDirect(DIMS * Float.BYTES);
+        b.order(ByteOrder.BIG_ENDIAN);
+        return b;
+    });
+    private final ThreadLocal<float[]> tlVec = ThreadLocal.withInitial(() -> new float[DIMS]);
 
     @Service.Inject
     public VectorStore(VectorIndexFactory factory) {
@@ -243,6 +251,90 @@ public class VectorStore {
 
     public int search(float[] query, int topK, int[] neighbors, float[] distances) {
         return index.search(query, topK, neighbors, distances);
+    }
+
+    /**
+     * Search with adjustable `nprobe` and `candidates` parameters.
+     */
+    public int searchWithParams(float[] query, int topK, int nprobe, int candidates, int[] neighbors, float[] distances) {
+        if (index instanceof villani.dev.vectorsearch.index.strategies.ivfpq.IVFPQIndex ivf) {
+            return ivf.searchWithParams(query, topK, nprobe, candidates, neighbors, distances);
+        }
+        return index.search(query, topK, neighbors, distances);
+    }
+
+    /**
+     * Exact rerank over a provided candidate id list. Reads vectors directly from the file channel
+     * using thread-local direct buffers to avoid heap allocations.
+     * Returns the fraud count among the topK neighbors found.
+     */
+    public int exactRerankOnCandidates(float[] query, int topK, int[] candidateIds, int candidateCount, int[] outNeighbors, float[] outDistances) {
+        Arrays.fill(outDistances, Float.MAX_VALUE);
+        Arrays.fill(outNeighbors, -1);
+
+        ByteBuffer readBuf = tlReadBuffer.get();
+        float[] vecBuf = tlVec.get();
+
+        for (int i = 0; i < candidateCount; i++) {
+            int id = candidateIds[i];
+            if (id < 0 || id >= vectorCount) continue;
+            try {
+                readVectorInto(id, readBuf, vecBuf);
+            } catch (IOException e) {
+                continue;
+            }
+            float d = squaredDistance(query, vecBuf);
+            insertSorted(outNeighbors, outDistances, topK, id, d);
+        }
+
+        int fraudCount = 0;
+        for (int i = 0; i < topK; i++) {
+            if (outNeighbors[i] >= 0 && labels[outNeighbors[i]] == 1) fraudCount++;
+        }
+        return fraudCount;
+    }
+
+    private void readVectorInto(int id, ByteBuffer buf, float[] dst) throws IOException {
+        long offset = vectorsOffset + (long) id * DIMS * Float.BYTES;
+        buf.clear();
+        int bytesRead = 0;
+        while (buf.hasRemaining()) {
+            int n = vectorsChannel.read(buf, offset + bytesRead);
+            if (n == -1) throw new IOException("EOF");
+            bytesRead += n;
+        }
+        buf.flip();
+        buf.asFloatBuffer().get(dst);
+    }
+
+    private static void insertSorted(int[] neighbors, float[] distances, int k, int id, float dist) {
+        int pos = k - 1;
+        while (pos > 0 && distances[pos - 1] > dist) {
+            distances[pos] = distances[pos - 1];
+            neighbors[pos] = neighbors[pos - 1];
+            pos--;
+        }
+        distances[pos] = dist;
+        neighbors[pos] = id;
+    }
+
+    private static float squaredDistance(float[] a, float[] b) {
+        float d0 = a[0] - b[0];
+        float d1 = a[1] - b[1];
+        float d2 = a[2] - b[2];
+        float d3 = a[3] - b[3];
+        float d4 = a[4] - b[4];
+        float d5 = a[5] - b[5];
+        float d6 = a[6] - b[6];
+        float d7 = a[7] - b[7];
+        float d8 = a[8] - b[8];
+        float d9 = a[9] - b[9];
+        float d10 = a[10] - b[10];
+        float d11 = a[11] - b[11];
+        float d12 = a[12] - b[12];
+        float d13 = a[13] - b[13];
+        return d0*d0 + d1*d1 + d2*d2 + d3*d3 + d4*d4 + d5*d5 + d6*d6 +
+                d7*d7 + d8*d8 + d9*d9 + d10*d10 + d11*d11 + d12*d12 + d13*d13;
     }
 
     public byte[] getIndexLabels() {
