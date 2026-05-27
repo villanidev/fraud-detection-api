@@ -13,8 +13,11 @@ app:
     #index: "brute_force"
     index: "ivf_pq"
     clusters: 2176
-    nprobe: 8
-    candidates: 15
-    rerank: true
+    nprobe: 2
+    candidates: 10
+    rerank:
+      enabled: true
+      nprobe: 8
+      candidates: 10
   fraud:
     debug: false

@@ -2,6 +2,7 @@ package villani.dev.vectorsearch.index;
 
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import villani.dev.vectorsearch.index.strategies.ivfpq.IVFPQIndex;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -31,6 +32,8 @@ public class ReRankingVectorIndex implements VectorIndex {
     private final long vectorsOffset;
     private final int vectorCount;
     private final int candidates;
+    private final int rerankNprobe;
+    private final int rerankCandidates;
 
     // Scratch buffers usados no hot path da busca (apenas cálculo, sem I/O)
     private final ThreadLocal<int[]>   tlCoarseNeighbors;
@@ -48,12 +51,15 @@ public class ReRankingVectorIndex implements VectorIndex {
                                 FileChannel vectorsChannel,
                                 long vectorsOffset,
                                 int vectorCount,
-                                int candidates) {
+                                int rerankNprobe,
+                                int rerankCandidates) {
         this.inner = inner;
         this.vectorsChannel = vectorsChannel;
         this.vectorsOffset = vectorsOffset;
         this.vectorCount = vectorCount;
-        this.candidates = candidates;
+        this.candidates = rerankCandidates; // keep per-instance candidate scratch sized to rerank window
+        this.rerankNprobe = rerankNprobe;
+        this.rerankCandidates = rerankCandidates;
         this.tlCoarseNeighbors = ThreadLocal.withInitial(() -> new int[candidates]);
         this.tlCoarseDists     = ThreadLocal.withInitial(() -> new float[candidates]);
         this.tlExactDists      = ThreadLocal.withInitial(() -> new float[candidates]);
@@ -65,43 +71,85 @@ public class ReRankingVectorIndex implements VectorIndex {
         //System.out.println("Reranking - candidatos: " + candidates);
         int[] coarseNeighbors = tlCoarseNeighbors.get();
         float[] coarseDists   = tlCoarseDists.get();
+
         inner.search(query, candidates, coarseNeighbors, coarseDists);
 
         float[] exactDists = tlExactDists.get();
-        float[] vec = tlVec.get();  // será reutilizado para cada vetor lido
-
-        for (int i = 0; i < candidates; i++) {
-            int id = coarseNeighbors[i];
-            if (id < 0) {
-                exactDists[i] = Float.MAX_VALUE;
-                continue;
-            }
-            try {
-                float[] readVec = readVector(id); // chamada direta, sem pool
-                System.arraycopy(readVec, 0, vec, 0, DIMS);
-            } catch (Exception e) {
-                exactDists[i] = Float.MAX_VALUE;
-                continue;
-            }
-            exactDists[i] = squaredDistance(query, vec);
-        }
-
-        // Merge top‑k
-        Arrays.fill(distances, Float.MAX_VALUE);
-        Arrays.fill(neighbors, -1);
-        for (int i = 0; i < candidates; i++) {
-            if (coarseNeighbors[i] >= 0 && exactDists[i] < distances[topK - 1]) {
-                insertSorted(neighbors, distances, topK, coarseNeighbors[i], exactDists[i]);
-            }
-        }
+        computeExactDistancesForCandidates(query, coarseNeighbors, candidates, exactDists);
+        mergeExactIntoTopK(coarseNeighbors, candidates, exactDists, topK, neighbors, distances);
 
         byte[] labels = inner.getLabels();
         int fraudCount = 0;
         for (int i = 0; i < topK; i++) {
             if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
         }
+
+        if (fraudCount == 2 || fraudCount == 3) {
+            // Re-run coarse search with larger probe/candidate settings (hard-coded)
+            int[] newCoarseNeighbors;
+            float[] newCoarseDists;
+            if (rerankCandidates <= candidates) {
+                newCoarseNeighbors = coarseNeighbors;
+                newCoarseDists = coarseDists;
+            } else {
+                newCoarseNeighbors = new int[rerankCandidates];
+                newCoarseDists = new float[rerankCandidates];
+            }
+
+            if (inner instanceof IVFPQIndex ivf) {
+                ivf.searchWithParams(query, rerankCandidates, rerankNprobe, rerankCandidates, newCoarseNeighbors, newCoarseDists);
+            } else {
+                inner.search(query, rerankCandidates, newCoarseNeighbors, newCoarseDists);
+            }
+
+            // Recompute exact distances for the expanded candidate set and merge
+            float[] exactDists2 = new float[newCoarseNeighbors.length];
+            computeExactDistancesForCandidates(query, newCoarseNeighbors, newCoarseNeighbors.length, exactDists2);
+            mergeExactIntoTopK(newCoarseNeighbors, newCoarseNeighbors.length, exactDists2, topK, neighbors, distances);
+
+            // Recompute fraud count after expanded rerank
+            fraudCount = computeFraudCount(neighbors, topK);
+        }
+
         //System.out.println("Reranking - fraudes: " + fraudCount);
         return fraudCount;
+    }
+
+    private void computeExactDistancesForCandidates(float[] query, int[] candidateIds, int candidateCount, float[] outExactDists) {
+        float[] vec = tlVec.get();
+        for (int i = 0; i < candidateCount; i++) {
+            int id = candidateIds[i];
+            if (id < 0) {
+                outExactDists[i] = Float.MAX_VALUE;
+                continue;
+            }
+            try {
+                float[] readVec = readVector(id);
+                System.arraycopy(readVec, 0, vec, 0, DIMS);
+                outExactDists[i] = squaredDistance(query, vec);
+            } catch (Exception e) {
+                outExactDists[i] = Float.MAX_VALUE;
+            }
+        }
+    }
+
+    private void mergeExactIntoTopK(int[] candidateIds, int candidateCount, float[] exactDists, int topK, int[] neighbors, float[] distances) {
+        Arrays.fill(distances, Float.MAX_VALUE);
+        Arrays.fill(neighbors, -1);
+        for (int i = 0; i < candidateCount; i++) {
+            if (candidateIds[i] >= 0 && exactDists[i] < distances[topK - 1]) {
+                insertSorted(neighbors, distances, topK, candidateIds[i], exactDists[i]);
+            }
+        }
+    }
+
+    private int computeFraudCount(int[] neighbors, int topK) {
+        byte[] labels = inner.getLabels();
+        int fraud = 0;
+        for (int i = 0; i < topK; i++) {
+            if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraud++;
+        }
+        return fraud;
     }
 
     private float[] readVector(int id) throws Exception {

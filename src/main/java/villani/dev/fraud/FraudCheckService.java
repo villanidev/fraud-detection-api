@@ -17,8 +17,6 @@ public class FraudCheckService {
     private final VectorStore vectorStore;
     private final PerformanceStats performanceStats;
     private final boolean debug;
-    private final int rerankNprobe;
-    private final int rerankCandidates;
 
     private static final String[] DIM_NAMES = {
             "amount", "installments", "amount_vs_avg", "hour_of_day", "day_of_week",
@@ -38,8 +36,6 @@ public class FraudCheckService {
         this.vectorStore = vectorStore;
         this.performanceStats = performanceStats;
         this.debug = config.get("app.fraud.debug").asBoolean().orElse(false);
-        this.rerankNprobe = config.get("app.fraud.rerank.nprobe").asInt().orElse(64);
-        this.rerankCandidates = config.get("app.fraud.rerank.candidates").asInt().orElse(10);
     }
 
     public long getTotalRequests()    { return totalRequests.get(); }
@@ -132,18 +128,6 @@ public class FraudCheckService {
         float[] distances = new float[5];
         int fraudCount = vectorStore.search(emb, 5, neighbors, distances);
         //System.out.println("final: " +fraudCount);
-
-        if (fraudCount == 2 || fraudCount == 3) {
-            // Use factory-created index with expanded params (likely a ReRankingVectorIndex)
-            villani.dev.vectorsearch.index.VectorIndex rerankIndex = vectorStore.createIndexForBenchmark(rerankNprobe, rerankCandidates);
-            int[] neighborsExact = new int[5];
-            float[] distancesExact = new float[5];
-            int fraudCountExact = rerankIndex.search(emb, 5, neighborsExact, distancesExact);
-            if (fraudCountExact != fraudCount) {
-                fraudCount = fraudCountExact;
-            }
-        }
-
         // 3 Score ta cacheado
         return DecisionResponse.get(fraudCount);
     }
