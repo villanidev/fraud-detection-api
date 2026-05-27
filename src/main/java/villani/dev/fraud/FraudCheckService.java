@@ -38,7 +38,7 @@ public class FraudCheckService {
         this.vectorStore = vectorStore;
         this.performanceStats = performanceStats;
         this.debug = config.get("app.fraud.debug").asBoolean().orElse(false);
-        this.rerankNprobe = config.get("app.fraud.rerank.nprobe").asInt().orElse(32);
+        this.rerankNprobe = config.get("app.fraud.rerank.nprobe").asInt().orElse(64);
         this.rerankCandidates = config.get("app.fraud.rerank.candidates").asInt().orElse(10);
     }
 
@@ -133,7 +133,7 @@ public class FraudCheckService {
         int fraudCount = vectorStore.search(emb, 5, neighbors, distances);
         //System.out.println("final: " +fraudCount);
 
-        if (fraudCount == 3) {
+        if (fraudCount == 2 || fraudCount == 3) {
             // Use factory-created index with expanded params (likely a ReRankingVectorIndex)
             villani.dev.vectorsearch.index.VectorIndex rerankIndex = vectorStore.createIndexForBenchmark(rerankNprobe, rerankCandidates);
             int[] neighborsExact = new int[5];
