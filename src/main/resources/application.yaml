@@ -12,8 +12,8 @@ app:
   vector-search:
     #index: "brute_force"
     index: "ivf_pq"
-    clusters: 1472
-    nprobe: 2
+    clusters: 2176
+    nprobe: 8
     candidates: 15
     rerank: true
   fraud:

@@ -56,7 +56,7 @@ public class VectorStore {
 
     private volatile float[][] centroids;
     private volatile int[][] idsByCluster;
-    private volatile byte[][] codesByCluster;
+    private volatile short[][] codesByCluster;
     private volatile float[] vectors;
     private volatile byte[] labels;
     private volatile ProductQuantizer pq;
@@ -141,17 +141,17 @@ public class VectorStore {
 
             // --- Inverted lists ---
             int[][] idsByCluster = new int[K][];
-            byte[][] codesByCluster = new byte[K][];
+            short[][] codesByCluster = new short[K][];
             for (int c = 0; c < K; c++) {
                 int count = readInt(channel, readBuf);
                 idsByCluster[c] = new int[count];
-                codesByCluster[c] = new byte[count * ProductQuantizer.M];
+                codesByCluster[c] = new short[count * ProductQuantizer.M];
                 for (int i = 0; i < count; i++) {
                     idsByCluster[c][i] = readInt(channel, readBuf);
-                    // Lê exatamente M bytes do código
-                    byte[] codeTmp = new byte[ProductQuantizer.M];
-                    readFully(channel, readBuf, codeTmp);
-                    System.arraycopy(codeTmp, 0, codesByCluster[c], i * ProductQuantizer.M, ProductQuantizer.M);
+                    // Lê exatamente M shorts do código
+                    for (int m = 0; m < ProductQuantizer.M; m++) {
+                        codesByCluster[c][i * ProductQuantizer.M + m] = readShort(channel, readBuf);
+                    }
                 }
             }
             this.idsByCluster = idsByCluster;
@@ -185,6 +185,11 @@ public class VectorStore {
     private float readFloat(FileChannel ch, ByteBuffer buf) throws IOException {
         ensureBuffer(ch, buf, 4);
         return buf.getFloat();
+    }
+
+    private short readShort(FileChannel ch, ByteBuffer buf) throws IOException {
+        ensureBuffer(ch, buf, 2);
+        return buf.getShort();
     }
 
     private void readFully(FileChannel ch, ByteBuffer buf, byte[] dst) throws IOException {
@@ -236,8 +241,8 @@ public class VectorStore {
         }
     }
 
-    public int search(float[] query, int k, int[] neighbors, float[] distances) {
-        return index.search(query, k, neighbors, distances);
+    public int search(float[] query, int topK, int[] neighbors, float[] distances) {
+        return index.search(query, topK, neighbors, distances);
     }
 
     public byte[] getIndexLabels() {

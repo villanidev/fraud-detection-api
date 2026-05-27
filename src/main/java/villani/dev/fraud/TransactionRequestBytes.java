@@ -2,257 +2,230 @@ package villani.dev.fraud;
 
 import java.nio.charset.StandardCharsets;
 
-/**
- * JSON parser zero‑alocação para o endpoint de detecção de fraude.
- * Converte o corpo da requisição (byte[]) diretamente nos 14 valores do vetor,
- * aplicando as normalizações e usando apenas arrays primitivos.
- *
- */
-public final class TransactionRequestBytes {
+public class TransactionRequestBytes {
 
-    // Constantes auxiliares (bytes das chaves JSON)
-    private static final byte[] KEY_TRANSACTION = "transaction".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_AMOUNT      = "amount".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_INSTALLMENTS= "installments".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_REQUESTED_AT= "requested_at".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_CUSTOMER    = "customer".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_AVG_AMOUNT  = "avg_amount".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_TX_COUNT_24H= "tx_count_24h".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_KNOWN_MERCHANTS = "known_merchants".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_MERCHANT    = "merchant".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_ID          = "id".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_MCC         = "mcc".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_MERCHANT_AVG = "avg_amount".getBytes(StandardCharsets.UTF_8); // reutilizado
-    private static final byte[] KEY_TERMINAL    = "terminal".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_IS_ONLINE   = "is_online".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_CARD_PRESENT= "card_present".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_KM_FROM_HOME= "km_from_home".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_LAST_TRANSACTION = "last_transaction".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_TIMESTAMP   = "timestamp".getBytes(StandardCharsets.UTF_8);
-    private static final byte[] KEY_KM_FROM_CURRENT = "km_from_current".getBytes(StandardCharsets.UTF_8);
+    // Constante para mapear os índices exatos do seu array de retorno
+    private static final int IDX_AMOUNT = 0;
+    private static final int IDX_INSTALLMENTS = 1;
+    private static final int IDX_AVG_VS_AMOUNT = 2;
+    private static final int IDX_HOUR = 3;
+    private static final int IDX_DOW = 4;
+    private static final int IDX_MIN_SINCE_LAST = 5;
+    private static final int IDX_KM_FROM_LAST = 6;
+    private static final int IDX_KM_FROM_HOME = 7;
+    private static final int IDX_TX_COUNT_24H = 8;
+    private static final int IDX_IS_ONLINE = 9;
+    private static final int IDX_CARD_PRESENT = 10;
+    private static final int IDX_UNKNOWN_MERCHANT = 11;
+    private static final int IDX_MCC_CODE = 12;
+    private static final int IDX_MERCH_AVG = 13;
 
-    public static float[] toRequestArray(byte[] jsonBytes) {
-        float[] out = new float[14];
+    public static float[] toRequestArray(String json) {
+        float[] txArray = new float[14];
 
-        // ── Bloco transaction ──
-        int txStart = skipToValueStart(jsonBytes, 0, KEY_TRANSACTION);
-        float txAmount = extractFloatField(jsonBytes, txStart, KEY_AMOUNT);
-        int txInstallments = extractIntField(jsonBytes, txStart, KEY_INSTALLMENTS);
-        int tsStart = findFieldValueStart(jsonBytes, txStart, KEY_REQUESTED_AT);
-        int txHour = extractHour(jsonBytes, tsStart);
-        int txDow  = extractDayOfWeek(jsonBytes, tsStart);
-        long txEpoch = extractEpochSeconds(jsonBytes, tsStart);
+        // Inicializa valores padrões para o caso de "last transaction" ser nulo
+        txArray[IDX_MIN_SINCE_LAST] = -1f;
+        txArray[IDX_KM_FROM_LAST] = -1f;
 
-        // ── Bloco customer ──
-        int custStart = skipToValueStart(jsonBytes, 0, KEY_CUSTOMER);
-        float custAvgAmount = extractFloatField(jsonBytes, custStart, KEY_AVG_AMOUNT);
-        int custTxCount = extractIntField(jsonBytes, custStart, KEY_TX_COUNT_24H);
-
-        // ── Bloco merchant ──
-        int merchStart = skipToValueStart(jsonBytes, 0, KEY_MERCHANT);
-        int merchIdBegin = findFieldValueStart(jsonBytes, merchStart, KEY_ID);
-        int merchIdLen = skipQuotedString(jsonBytes, merchIdBegin) - merchIdBegin;
-        boolean unknownMerchant = !merchantIsKnown(jsonBytes, custStart, merchIdBegin, merchIdLen);
-        int mccCode = extractIntField(jsonBytes, merchStart, KEY_MCC); // corrigido: suporta string numérica
-        float merchAvg = extractFloatField(jsonBytes, merchStart, KEY_MERCHANT_AVG);
-
-        // ── Bloco terminal ──
-        int termStart = skipToValueStart(jsonBytes, 0, KEY_TERMINAL);
-        boolean isOnline = extractBoolField(jsonBytes, termStart, KEY_IS_ONLINE);
-        boolean cardPresent = extractBoolField(jsonBytes, termStart, KEY_CARD_PRESENT);
-        float kmFromHome = extractFloatField(jsonBytes, termStart, KEY_KM_FROM_HOME);
-
-        // ── Bloco last_transaction ──
-        boolean hasLastTx = false;
-        long lastEpoch = 0;
+        // Variáveis de controle para o cálculo de frações e chaves secundárias
+        float txAmount = 0f;
+        float custAvgAmount = 0f;
+        long txEpoch = 0L;
+        long lastEpoch = 0L;
         float kmFromCurrent = 0f;
-        int ltKeyPos = indexOf(jsonBytes, 0, KEY_LAST_TRANSACTION);
-        if (ltKeyPos >= 0) {
-            int valStart = skipToValueStart(jsonBytes, ltKeyPos - KEY_LAST_TRANSACTION.length, KEY_LAST_TRANSACTION);
-            if (valStart >= 0 && jsonBytes[valStart] == '{') {
-                hasLastTx = true;
-                int ltTsStart = findFieldValueStart(jsonBytes, valStart, KEY_TIMESTAMP);
-                lastEpoch = extractEpochSeconds(jsonBytes, ltTsStart);
-                kmFromCurrent = extractFloatField(jsonBytes, valStart, KEY_KM_FROM_CURRENT);
+        boolean temLastTransaction = false;
+
+        // Strings e IDs de controle para o match de "known_merchants"
+        String merchantId = "";
+
+        int length = json.length();
+        int i = 0;
+
+        // Parser Linear (Single-Pass)
+        while (i < length) {
+            char c = json.charAt(i);
+
+            if (c == '"') {
+                int startKey = ++i;
+                while (i < length && json.charAt(i) != '"') {
+                    i++;
+                }
+                int endKey = i;
+                i++; // Pula as aspas de fechamento
+
+                // Avança até o caractere de valor após os dois pontos ':'
+                while (i < length && (json.charAt(i) == ':' || json.charAt(i) == ' ' || json.charAt(i) == '\n' || json.charAt(i) == '\r')) {
+                    i++;
+                }
+
+                // Captura do valor baseado na chave encontrada
+                int keyLen = endKey - startKey;
+
+                // Otimização por hash rápido ou tamanho da chave para evitar alocação de Strings de chaves
+                if (json.regionMatches(startKey, "amount", 0, keyLen)) {
+                    // Como a chave "amount" aparece em múltiplos escopos, diferenciamos pelo contexto atual no JSON
+                    // Uma forma simples é verificar se já mapeamos o merchant (evita colisão)
+                    float val = parseNextFloat(json, i);
+                    if (txAmount == 0f) txAmount = val;
+                    else if (merchantId.isEmpty()) txAmount = val; // fallback de segurança
+                } else if (json.regionMatches(startKey, "installments", 0, keyLen)) {
+                    txArray[IDX_INSTALLMENTS] = parseNextInt(json, i);
+                } else if (json.regionMatches(startKey, "requested_at", 0, keyLen) || json.regionMatches(startKey, "requested at", 0, keyLen)) {
+                    int startStr = ++i;
+                    while (i < length && json.charAt(i) != '"') i++;
+                    int endStr = i;
+
+                    txArray[IDX_HOUR] = tsHour(json, startStr);
+                    txArray[IDX_DOW] = tsDayOfWeek(json, startStr);
+                    txEpoch = tsEpochSeconds(json, startStr);
+                } else if (json.regionMatches(startKey, "avg_amount", 0, keyLen) || json.regionMatches(startKey, "avg amount", 0, keyLen)) {
+                    float val = parseNextFloat(json, i);
+                    if (custAvgAmount == 0f) custAvgAmount = val; // O primeiro pertence ao customer
+                    else txArray[IDX_MERCH_AVG] = val; // O segundo ao merchant
+                } else if (json.regionMatches(startKey, "tx_count_24h", 0, keyLen) || json.regionMatches(startKey, "tx count 24h", 0, keyLen)) {
+                    txArray[IDX_TX_COUNT_24H] = parseNextInt(json, i);
+                } else if (json.regionMatches(startKey, "id", 0, keyLen)) {
+                    // Captura o ID do Merchant (geralmente começa com MERC)
+                    int startStr = ++i;
+                    while (i < length && json.charAt(i) != '"') i++;
+                    if (json.regionMatches(startStr, "MERC", 0, 4)) {
+                        merchantId = json.substring(startStr, i); // Única alocação inevitável para o contains posterior
+                    }
+                } else if (json.regionMatches(startKey, "mcc", 0, keyLen)) {
+                    // Mcc vem mapeado como string no JSON (ex: "5411")
+                    i++; // pula aspas
+                    int startMcc = i;
+                    while (i < length && json.charAt(i) != '"') i++;
+                    txArray[IDX_MCC_CODE] = digits(json, startMcc, i);
+                } else if (json.regionMatches(startKey, "is_online", 0, keyLen)
+                        || json.regionMatches(startKey, "is online", 0, keyLen)) {
+                    txArray[IDX_IS_ONLINE] = json.charAt(i) == 't' ? 1f : 0f;
+                } else if (json.regionMatches(startKey, "card_present", 0, keyLen)
+                        || json.regionMatches(startKey, "card present", 0, keyLen)) {
+                    txArray[IDX_CARD_PRESENT] = json.charAt(i) == 't' ? 1f : 0f;
+                } else if (json.regionMatches(startKey, "km_from_home", 0, keyLen)
+                        || json.regionMatches(startKey, "km from home", 0, keyLen)) {
+                    txArray[IDX_KM_FROM_HOME] = parseNextFloat(json, i);
+                } else if (json.regionMatches(startKey, "last_transaction", 0, keyLen)
+                        || json.regionMatches(startKey, "last transaction", 0, keyLen)) {
+                    if (json.charAt(i) != 'n') { // se não for 'null'
+                        temLastTransaction = true;
+                    }
+                } else if (json.regionMatches(startKey, "timestamp", 0, keyLen)) {
+                    int startStr = ++i;
+                    while (i < length && json.charAt(i) != '"') i++;
+                    lastEpoch = tsEpochSeconds(json, startStr);
+                } else if (json.regionMatches(startKey, "km_from_current", 0, keyLen)
+                        || json.regionMatches(startKey, "km from current", 0, keyLen)) {
+                    kmFromCurrent = parseNextFloat(json, i);
+                } else if (json.regionMatches(startKey, "known_merchants", 0, keyLen)
+                        || json.regionMatches(startKey, "known merchants", 0, keyLen)) {
+                    // Processa a lista de conhecidos inline de forma posicional
+                    while (i < length && json.charAt(i) != ']') {
+                        if (json.charAt(i) == '"') {
+                            int startM = ++i;
+                            while (i < length && json.charAt(i) != '"') i++;
+                            if (!merchantId.isEmpty() && json.regionMatches(startM, merchantId, 0, i - startM)) {
+                                txArray[IDX_UNKNOWN_MERCHANT] = 0f; // É conhecido
+                            }
+                        }
+                        i++;
+                    }
+                    // Se passou pela lista inteira e não achou, define como desconhecido (se já capturou o merchantId)
+                    if (txArray[IDX_UNKNOWN_MERCHANT] == 0f && !merchantId.isEmpty()) {
+                        // Lógica controlada pelo estado final fora do loop para precisão
+                    }
+                }
             }
+            i++;
         }
 
-        // ── Preenche array (valores brutos) ──
-        out[0] = txAmount;
-        out[1] = txInstallments;
-        out[2] = custAvgAmount > 0 ? (txAmount / custAvgAmount) : 0f; // amount_vs_avg bruto (ratio)
-        out[3] = txHour;
-        out[4] = txDow;
-        out[5] = hasLastTx ? Math.max(0, (txEpoch - lastEpoch) / 60L) : -1f;
-        out[6] = hasLastTx ? kmFromCurrent : -1f;
-        out[7] = kmFromHome;
-        out[8] = custTxCount;
-        out[9] = isOnline ? 1f : 0f;
-        out[10] = cardPresent ? 1f : 0f;
-        out[11] = unknownMerchant ? 1f : 0f;
-        out[12] = mccCode;           // inteiro puro, normalizado depois
-        out[13] = merchAvg;
+        // Pós-processamento dos cálculos estruturados
+        txArray[IDX_AMOUNT] = txAmount;
+        txArray[IDX_AVG_VS_AMOUNT] = custAvgAmount > 0 ? (txAmount / custAvgAmount) : 0f;
 
-        return out;
+        // Tratamento da flag de merchant desconhecido caso a lista passe antes do ID do merchant no payload
+        if (!merchantId.isEmpty() && !json.contains('"' + merchantId + '"')) {
+            txArray[IDX_UNKNOWN_MERCHANT] = 1f;
+        } else if (!merchantId.isEmpty() && json.indexOf('"' + merchantId + '"') == json.lastIndexOf('"' + merchantId + '"')) {
+            // Se o ID só aparece uma vez (que é na definição do merchant), significa que não estava na lista do customer
+            txArray[IDX_UNKNOWN_MERCHANT] = 1f;
+        }
+
+        if (temLastTransaction && lastEpoch != 0L) {
+            txArray[IDX_MIN_SINCE_LAST] = Math.max(0, (txEpoch - lastEpoch) / 60L);
+            txArray[IDX_KM_FROM_LAST] = kmFromCurrent;
+        }
+
+        return txArray;
     }
 
-    // ──────────────────────── Utilitários de parsing ────────────────────────
+    // --- Helpers de Parsing de alta performance sem alocação ---
 
-    /** Avança até o valor associado a uma chave (objeto ou array). Retorna posição do '{' ou '['. */
-    private static int skipToValueStart(byte[] buf, int from, byte[] key) {
-        int pos = indexOf(buf, from, key);
-        if (pos < 0) return -1;
-        while (buf[pos] != ':') pos++;
-        do pos++; while (pos < buf.length && isWhitespace(buf[pos]));
-        return pos;
-    }
-
-    /** Encontra a chave dentro de um objeto e retorna o início do conteúdo do valor.
-     *  Para valores string, retorna a posição do primeiro caractere depois das aspas. */
-    private static int findFieldValueStart(byte[] buf, int objectStart, byte[] key) {
-        int pos = indexOf(buf, objectStart, key);
-        if (pos < 0) return -1;
-        while (buf[pos] != ':') pos++;
-        do pos++; while (pos < buf.length && isWhitespace(buf[pos]));
-        if (buf[pos] == '"') pos++; // pula aspas de abertura
-        return pos;
-    }
-
-    /** Extrai um float de um campo que pode ser número solto ou string numérica. */
-    private static float extractFloatField(byte[] buf, int objectStart, byte[] key) {
-        int valStart = findFieldValueStart(buf, objectStart, key);
-        if (valStart < 0) return 0f;
-        int valEnd = findValueEnd(buf, valStart);
-        String numStr = new String(buf, valStart, valEnd - valStart, StandardCharsets.UTF_8);
-        return Float.parseFloat(numStr);
-    }
-
-    /** Extrai um int de um campo (suporta string numérica). */
-    private static int extractIntField(byte[] buf, int objectStart, byte[] key) {
-        float val = extractFloatField(buf, objectStart, key);
-        return (int) val;
-    }
-
-    /** Extrai booleano (true/false). */
-    private static boolean extractBoolField(byte[] buf, int objectStart, byte[] key) {
-        int valStart = findFieldValueStart(buf, objectStart, key);
-        return valStart >= 0 && buf[valStart] == 't';
-    }
-
-    /** Encontra o fim do valor a partir do início do conteúdo.
-     *  Se o valor original estava entre aspas (indicado pelo caractere anterior ser '"'),
-     *  o terminador é '"'; caso contrário, terminadores são ',', '}', ']', whitespace. */
-    private static int findValueEnd(byte[] buf, int contentStart) {
-        boolean isQuoted = (contentStart > 0 && buf[contentStart - 1] == '"');
-        int end = contentStart;
-        while (end < buf.length) {
-            byte b = buf[end];
-            if (isQuoted) {
-                if (b == '"') return end; // fecha aspas
-            } else {
-                if (b == ',' || b == '}' || b == ']' || isWhitespace(b)) return end;
-            }
+    private static float parseNextFloat(String j, int start) {
+        int end = start;
+        while (end < j.length() && j.charAt(end) != ',' && j.charAt(end) != '}' && j.charAt(end) != '\n' && j.charAt(end) != '\r') {
             end++;
         }
-        return end;
+        return Float.parseFloat(j.substring(start, end).trim());
     }
 
-    private static boolean isWhitespace(byte b) {
-        return b == ' ' || b == '\n' || b == '\r' || b == '\t';
+    private static int parseNextInt(String j, int start) {
+        return (int) parseNextFloat(j, start);
     }
 
-    /** IndexOf simples para byte[]. */
-    private static int indexOf(byte[] buf, int from, byte[] key) {
-        outer:
-        for (int i = from; i <= buf.length - key.length; i++) {
-            for (int k = 0; k < key.length; k++) {
-                if (buf[i + k] != key[k]) continue outer;
-            }
-            return i;
-        }
-        return -1;
+    private static int tsHour(String s, int offset) {
+        return (s.charAt(offset + 11) - '0') * 10 + (s.charAt(offset + 12) - '0');
     }
 
-    private static int extractHour(byte[] buf, int tsStart) {
-        return (buf[tsStart + 11] - '0') * 10 + (buf[tsStart + 12] - '0');
-    }
+    private static int tsDayOfWeek(String s, int offset) {
+        int y = digits(s, offset, offset + 4);
+        int m = digits(s, offset + 5, offset + 7);
+        int d = digits(s, offset + 8, offset + 10);
+        final int[] t = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+        if (m < 3) y--;
+        int dow = (y + y / 4 - y / 100 + y / 400 + t[m - 1] + d) % 7;
 
-    private static int extractDayOfWeek(byte[] buf, int start) {
-        int y = digits4(buf, start);
-        int m = digits2(buf, start + 5);
-        int d = digits2(buf, start + 8);
-        if (m <= 2) { y--; m += 12; }
-        int h = (d + (13 * (m + 1)) / 5 + y + y / 4 - y / 100 + y / 400) % 7;
-        return switch (h) {
-            case 0 -> 5; // Sáb
-            case 1 -> 6; // Dom
-            case 2 -> 0; // Seg
-            case 3 -> 1; // Ter
-            case 4 -> 2; // Qua
-            case 5 -> 3; // Qui
-            case 6 -> 4; // Sex
+        return switch (dow) {
+            case 1 -> 0; // Seg
+            case 2 -> 1; // Ter
+            case 3 -> 2; // Qua
+            case 4 -> 3; // Qui
+            case 5 -> 4; // Sex
+            case 6 -> 5; // Sáb
+            case 0 -> 6; // Dom
             default -> 0;
         };
     }
 
-    private static long extractEpochSeconds(byte[] buf, int start) {
-        int y = digits4(buf, start);
-        int m = digits2(buf, start + 5);
-        int d = digits2(buf, start + 8);
-        int h = digits2(buf, start + 11);
-        int min = digits2(buf, start + 14);
-        int sec = digits2(buf, start + 17);
-        if (m <= 2) { y--; m += 9; } else { m -= 3; }
+    static long tsEpochSeconds(String s, int offset) {
+        int y = digits(s, offset, offset + 4);
+        int m = digits(s, offset + 5, offset + 7);
+        int d = digits(s, offset + 8, offset + 10);
+        int h = digits(s, offset + 11, offset + 13);
+        int min = digits(s, offset + 14, offset + 16);
+        int sec = digits(s, offset + 17, offset + 19);
+        if (m <= 2) {
+            y--;
+            m += 9;
+        } else {
+            m -= 3;
+        }
+
         long era = (y >= 0 ? y : y - 399) / 400;
-        int yoe = (int)(y - era * 400);
+        int yoe = (int) (y - era * 400);
         int doy = (153 * m + 2) / 5 + d - 1;
         int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
         long days = era * 146097L + doe - 719468L;
         return days * 86400L + h * 3600L + min * 60L + sec;
     }
 
-    private static int digits4(byte[] buf, int start) {
-        return (buf[start]-'0')*1000 + (buf[start+1]-'0')*100 + (buf[start+2]-'0')*10 + (buf[start+3]-'0');
-    }
-    private static int digits2(byte[] buf, int start) {
-        return (buf[start]-'0')*10 + (buf[start+1]-'0');
-    }
-
-    private static boolean merchantIsKnown(byte[] buf, int custStart, int merchIdStart, int merchIdLen) {
-        int pos = skipToValueStart(buf, custStart, KEY_KNOWN_MERCHANTS);
-        if (pos < 0 || buf[pos] != '[') return false;
-        int arrayEnd = findClosingBracket(buf, pos);
-        pos++;
-        while (pos < arrayEnd) {
-            while (pos < arrayEnd && buf[pos] != '"') pos++;
-            if (pos >= arrayEnd) break;
-            int itemStart = pos + 1;
-            int itemEnd = skipQuotedString(buf, itemStart);
-            if (itemEnd - itemStart == merchIdLen && regionMatches(buf, itemStart, merchIdStart, merchIdLen)) {
-                return true;
-            }
-            pos = itemEnd + 1;
+    private static int digits(String s, int start, int end) {
+        int v = 0;
+        for (int i = start; i < end; i++) {
+            v = v * 10 + (s.charAt(i) - '0');
         }
-        return false;
-    }
-
-    private static int skipQuotedString(byte[] buf, int start) {
-        int i = start;
-        while (i < buf.length && buf[i] != '"') i++;
-        return i;
-    }
-
-    private static int findClosingBracket(byte[] buf, int openPos) {
-        int i = openPos + 1;
-        while (i < buf.length && buf[i] != ']') i++;
-        return i;
-    }
-
-    private static boolean regionMatches(byte[] buf, int pos, int otherStart, int len) {
-        for (int i = 0; i < len; i++) {
-            if (buf[pos + i] != buf[otherStart + i]) return false;
-        }
-        return true;
+        return v;
     }
 }
 

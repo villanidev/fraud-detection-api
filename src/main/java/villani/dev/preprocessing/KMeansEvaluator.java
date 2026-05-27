@@ -13,7 +13,7 @@ public class KMeansEvaluator {
     private final boolean verbose;
 
     /**
-     * @param fullVectors todos os vetores de treino (p. ex. 3M)
+     * @param fullVectorsFlat todos os vetores de treino (p. ex. 3M)
      * @param kCandidates valores de K a testar (ex: {512, 1024, 1536, 2048, 2560, 3072})
      * @param baseSeed    semente base para reprodutibilidade
      * @param sampleSize  tamanho da amostra fixa usada em todos os testes (ex: 300000)
@@ -145,9 +145,7 @@ public class KMeansEvaluator {
         int n = vectors.length;
         float[][] sample = new float[sampleSize][];
         Random rnd = new Random(seed);
-        for (int i = 0; i < sampleSize; i++) {
-            sample[i] = vectors[i];
-        }
+        System.arraycopy(vectors, 0, sample, 0, sampleSize);
         for (int i = sampleSize; i < n; i++) {
             int j = rnd.nextInt(i + 1);
             if (j < sampleSize) {
