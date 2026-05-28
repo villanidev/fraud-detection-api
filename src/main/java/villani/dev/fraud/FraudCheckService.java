@@ -25,7 +25,6 @@ public class FraudCheckService {
             "mcc_risk", "merchant_avg_amount"
     };
 
-    // Gray-zone counters — fraudCount ∈ {2,3} where nprobe matters most
     private final AtomicLong totalRequests = new AtomicLong();
     private final AtomicLong grayZoneRequests = new AtomicLong();
 
@@ -103,7 +102,7 @@ public class FraudCheckService {
         return String.format("{\"approved\":%b,\"fraud_score\":%.4f}", approved, score);
     }
 
-    public String checkScore(float[] txArray) {
+    public byte[] checkScore(float[] txArray) {
         // 1 Embedding
         float[] emb = embeddingService.embed(txArray, vectorStore.getNormalization(), vectorStore.getMccRisk());
 
@@ -112,22 +111,6 @@ public class FraudCheckService {
         float[] distances = new float[5];
         int fraudCount = vectorStore.search(emb, 5, neighbors, distances);
 
-        // 3 Score
-        float score = fraudCount / 5.0f;
-        boolean approved = score < 0.6f;
-
-        return String.format("{\"approved\":%b,\"fraud_score\":%.4f}", approved, score);
-    }
-
-    public byte[] checkScore2(float[] txArray) {
-        // 1 Embedding
-        float[] emb = embeddingService.embed(txArray, vectorStore.getNormalization(), vectorStore.getMccRisk());
-
-        // 2 Busca K=5
-        int[] neighbors = new int[5];
-        float[] distances = new float[5];
-        int fraudCount = vectorStore.search(emb, 5, neighbors, distances);
-        //System.out.println("final: " +fraudCount);
         // 3 Score ta cacheado
         return DecisionResponse.get(fraudCount);
     }

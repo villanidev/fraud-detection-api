@@ -22,6 +22,6 @@ public class FraudCheckEndpoint {
     @Http.Produces(MediaTypes.APPLICATION_JSON_VALUE)
     public byte[] checkScore(@Http.Entity String body) {
         float[] txArray = TransactionRequest.toRequestArray(body);
-        return fraudCheckService.checkScore2(txArray);
+        return fraudCheckService.checkScore(txArray);
     }
 }

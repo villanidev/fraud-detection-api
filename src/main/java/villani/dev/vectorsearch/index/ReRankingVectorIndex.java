@@ -68,7 +68,6 @@ public class ReRankingVectorIndex implements VectorIndex {
 
     @Override
     public int search(float[] query, int topK, int[] neighbors, float[] distances) {
-        //System.out.println("Reranking - candidatos: " + candidates);
         int[] coarseNeighbors = tlCoarseNeighbors.get();
         float[] coarseDists   = tlCoarseDists.get();
 
@@ -78,11 +77,7 @@ public class ReRankingVectorIndex implements VectorIndex {
         computeExactDistancesForCandidates(query, coarseNeighbors, candidates, exactDists);
         mergeExactIntoTopK(coarseNeighbors, candidates, exactDists, topK, neighbors, distances);
 
-        byte[] labels = inner.getLabels();
-        int fraudCount = 0;
-        for (int i = 0; i < topK; i++) {
-            if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
-        }
+        int fraudCount = computeFraudCount(coarseNeighbors, topK);
 
         if (fraudCount == 2 || fraudCount == 3) {
             // Re-run coarse search with larger probe/candidate settings (hard-coded)
@@ -111,7 +106,6 @@ public class ReRankingVectorIndex implements VectorIndex {
             fraudCount = computeFraudCount(neighbors, topK);
         }
 
-        //System.out.println("Reranking - fraudes: " + fraudCount);
         return fraudCount;
     }
 

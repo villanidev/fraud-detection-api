@@ -94,7 +94,7 @@ public class IVFPQIndex implements VectorIndex {
         for (int i = 0; i < topK; i++) {
             if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
         }
-        //System.out.println("ivfpq - fraudes: " + fraudCount);
+
         return fraudCount;
     }
 
@@ -139,6 +139,7 @@ public class IVFPQIndex implements VectorIndex {
         for (int i = 0; i < topK; i++) {
             if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
         }
+
         return fraudCount;
     }
 

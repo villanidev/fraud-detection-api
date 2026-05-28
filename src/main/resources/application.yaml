@@ -17,7 +17,7 @@ app:
     candidates: 10
     rerank:
       enabled: true
-      nprobe: 8
+      nprobe: 16
       candidates: 10
   fraud:
     debug: false
