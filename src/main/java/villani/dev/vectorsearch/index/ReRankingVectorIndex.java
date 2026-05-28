@@ -80,7 +80,7 @@ public class ReRankingVectorIndex implements VectorIndex {
         int fraudCount = computeFraudCount(coarseNeighbors, topK);
 
         if (fraudCount == 2 || fraudCount == 3) {
-            // Re-run coarse search with larger probe/candidate settings (hard-coded)
+            // Re-run coarse search with larger probe/candidate settings
             int[] newCoarseNeighbors;
             float[] newCoarseDists;
             if (rerankCandidates <= candidates) {
