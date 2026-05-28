@@ -77,16 +77,22 @@ public class VectorIndexFactory {
                               ProductQuantizer pq,
                               FileChannel vectorsChannel,   // substitui MappedByteBuffer
                               long vectorsOffset,
-                              int vectorCount) {
+                              int vectorCount,
+                              float[] bboxMin,
+                              float[] bboxMax) {
 
         VectorIndex base = switch (indexType) {
             case "brute_force" -> new BruteForceIndex(vectors, labels);
             case "ivf_pq" -> new IVFPQIndex(centroids, idsByCluster, codesByCluster,
-                                              labels, pq, nprobe, candidates);
+                                              labels, pq, nprobe, candidates, bboxMin, bboxMax);
             case "hnsw" -> new HNSWIndex(labels);
             default -> throw new IllegalArgumentException(
                     "Unknown vector-search index: '" + indexType + "'. Valid values: brute_force, ivf_pq, hnsw");
         };
+
+        if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
+            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, rerankNprobe, rerankCandidates);
+        }
 
         if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
             return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, rerankNprobe, rerankCandidates);
@@ -113,7 +119,7 @@ public class VectorIndexFactory {
         VectorIndex base = switch (indexType) {
             case "brute_force" -> new BruteForceIndex(vectors, labels);
                 case "ivf_pq" -> new IVFPQIndex(centroids, idsByCluster, codesByCluster,
-                    labels, pq, nprobe, candidates);
+                    labels, pq, nprobe, candidates, null, null);
             case "hnsw" -> new HNSWIndex(labels);
             default -> throw new IllegalArgumentException("Unknown index type: " + indexType);
         };

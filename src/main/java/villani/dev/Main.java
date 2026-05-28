@@ -157,8 +157,8 @@ public class Main {
             System.arraycopy(vectorsFlat, indices[i] * 14, sampleVectors[i], 0, 14);
         }
 
-        int[] nprobes = { 1, 2, 4, 8, 16, 32 };
-        int[] candidates = { 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 100 };
+        int[] nprobes = { 1, 2, 4, 8, 16, 32, 64 };
+        int[] candidates = { 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 };
 
         int[][] groundTruth = RecallEvaluator.computeGroundTruth(sampleVectors, ref.flat(), 5);
 

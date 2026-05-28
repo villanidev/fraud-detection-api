@@ -62,6 +62,8 @@ public class VectorStore {
     private volatile byte[] labels;
     private volatile ProductQuantizer pq;
     private volatile int vectorCount;
+    private volatile float[] bboxMin;
+    private volatile float[] bboxMax;
     // Thread-local direct buffer and temp vector for exact rerank
     private final ThreadLocal<ByteBuffer> tlReadBuffer = ThreadLocal.withInitial(() -> {
         ByteBuffer b = ByteBuffer.allocateDirect(DIMS * Float.BYTES);
@@ -120,6 +122,24 @@ public class VectorStore {
             }
             this.centroids = centroids;
 
+            // --- Bounding boxes (optional) ---
+            float[] bboxMinLocal = new float[K * DIMS];
+            float[] bboxMaxLocal = new float[K * DIMS];
+            boolean hasBBox = false;
+            try {
+                for (int c = 0; c < K; c++) {
+                    int base = c * DIMS;
+                    for (int d = 0; d < DIMS; d++) bboxMinLocal[base + d] = readFloat(channel, readBuf);
+                    for (int d = 0; d < DIMS; d++) bboxMaxLocal[base + d] = readFloat(channel, readBuf);
+                }
+                hasBBox = true;
+            } catch (IOException e) {
+                // If unable to read bbox (older file without bbox), reset channel to vectorsOffset and continue
+                hasBBox = false;
+                channel.position(vectorsOffset);
+                readBuf.clear(); readBuf.flip();
+            }
+
             // posiciona o canal exatamente no início da seção de vetores
             channel.position(vectorsOffset);
 
@@ -172,8 +192,15 @@ public class VectorStore {
             this.vectorCount = N;
 
             // Cria o índice padrão com os parâmetros do config
+            if (hasBBox) {
+                this.bboxMin = bboxMinLocal;
+                this.bboxMax = bboxMaxLocal;
                 this.index = factory.create(centroids, idsByCluster, codesByCluster,
-                    vectors, labels, pq, this.vectorsChannel, this.vectorsOffset, N);
+                        vectors, labels, pq, this.vectorsChannel, this.vectorsOffset, N, bboxMinLocal, bboxMaxLocal);
+            } else {
+                this.index = factory.create(centroids, idsByCluster, codesByCluster,
+                        vectors, labels, pq, this.vectorsChannel, this.vectorsOffset, N, null, null);
+            }
             this.norms = loadedNorms;
             this.mccRisk = loadedMcc;
 

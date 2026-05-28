@@ -91,10 +91,36 @@ public class PreProcessorService {
             }
         }
 
+        // Build BBoxes per cluster (min/max per dimension)
+        System.out.println("[preprocess] Computing cluster BBoxes...");
+        final int DIMS = 14;
+        float[] bboxMin = new float[K * DIMS];
+        float[] bboxMax = new float[K * DIMS];
+        // init
+        for (int i = 0; i < K * DIMS; i++) {
+            bboxMin[i] = Float.POSITIVE_INFINITY;
+            bboxMax[i] = Float.NEGATIVE_INFINITY;
+        }
+        // populate
+        for (int c = 0; c < K; c++) {
+            int[] ids = idsByCluster[c];
+            int baseC = c * DIMS;
+            for (int j = 0; j < ids.length; j++) {
+                int vid = ids[j];
+                int vbase = vid * DIMS;
+                for (int d = 0; d < DIMS; d++) {
+                    float v = vectorsFlat[vbase + d];
+                    int idx = baseC + d;
+                    if (v < bboxMin[idx]) bboxMin[idx] = v;
+                    if (v > bboxMax[idx]) bboxMax[idx] = v;
+                }
+            }
+        }
+
         // Write data.bin
         System.out.println("[preprocess] Writing " + outputBin + "...");
         dataWriter.write(outputBin, norms, mccRisks, pq,
-            centroids, ref.flat(), labels, idsByCluster, codesByCluster);
+            centroids, ref.flat(), labels, idsByCluster, codesByCluster, bboxMin, bboxMax);
         System.out.println("[preprocess] Done.");
     }
 }

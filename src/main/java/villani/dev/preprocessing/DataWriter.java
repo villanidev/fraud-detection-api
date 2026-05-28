@@ -64,7 +64,9 @@ public class DataWriter {
                       float[] vectorsFlat,
                       byte[] labels,
                       int[][] idsByCluster,
-                      short[][][] codesByCluster) throws IOException {
+                      short[][][] codesByCluster,
+                      float[] bboxMin,
+                      float[] bboxMax) throws IOException {
 
         int K = centroids.length;
         int N = vectorsFlat.length / DIMS;
@@ -72,11 +74,15 @@ public class DataWriter {
         // Pre-compute vectorsOffset:
         // header(24) + norms(28) + mcc(40000) + codebooks(14336) + centroids(K*14*4)
         // header = 4 ints (4 bytes each) + 1 long (8 bytes) = 24 bytes
+        // Include bbox arrays size (if present) in the vectorsOffset calculation
+        long bboxBytes = (bboxMin != null && bboxMax != null) ? (long) K * DIMS * Float.BYTES * 2L : 0L;
+
         long vectorsOffset = 24L
                 + (long) VectorStore.NORM_COUNT * Float.BYTES
                 + (long) MCC_TABLE_SIZE * Float.BYTES
                 + pq.serializedSize()
-                + (long) K * DIMS * Float.BYTES;
+            + (long) K * DIMS * Float.BYTES
+            + bboxBytes;
 
         try (OutputStream fos = Files.newOutputStream(outputPath);
              DataOutputStream out = new DataOutputStream(new BufferedOutputStream(fos, 1 << 16))) {
@@ -106,6 +112,15 @@ public class DataWriter {
             // --- IVF centroids ---
             for (int c = 0; c < K; c++) {
                 for (int d = 0; d < DIMS; d++) out.writeFloat(centroids[c][d]);
+            }
+
+            // --- Bounding boxes (per-cluster: min[14], max[14]) ---
+            if (bboxMin != null && bboxMax != null) {
+                for (int c = 0; c < K; c++) {
+                    int base = c * DIMS;
+                    for (int d = 0; d < DIMS; d++) out.writeFloat(bboxMin[base + d]);
+                    for (int d = 0; d < DIMS; d++) out.writeFloat(bboxMax[base + d]);
+                }
             }
 
             // --- Original vectors (at vectorsOffset) ---
