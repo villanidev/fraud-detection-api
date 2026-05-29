@@ -1,9 +1,10 @@
 services:
   lb:
     image: haproxy:alpine
+    container_name: lb
     cpuset: "0"
     volumes:
-      - ./loadbalancers/haproxy/haproxy-unix.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./haproxy-unix.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
       - sockets:/sockets
     ports:
       - "9999:9999"
@@ -12,16 +13,19 @@ services:
         condition: service_started
       api2:
         condition: service_started
-    networks:
-      - rinha
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
           cpus: "0.15"
-          memory: "50MB"
+          memory: "47MB"
 
   api1:
     image: villanidev/rinha-de-backend-2026:20260528101651
+    container_name: api1
     cpuset: "1"
     environment:
       SERVER_SOCKET_PATH: /sockets/api1.sock
@@ -29,21 +33,24 @@ services:
       APP_VECTOR_SEARCH_NPROBE: "2"
       APP_VECTOR_SEARCH_CANDIDATES: "10"
       APP_VECTOR_SEARCH_RERANK_ENABLED: "true"
-      APP_VECTOR_SEARCH_RERANK_NPROBE: "32"
+      APP_VECTOR_SEARCH_RERANK_NPROBE: "24"
       APP_VECTOR_SEARCH_RERANK_CANDIDATES: "10"
       APP_FRAUD_DEBUG: "false"
     volumes:
       - sockets:/sockets
-    networks:
-      - rinha
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
           cpus: "0.425"
-          memory: "150MB"
+          memory: "147MB"
 
   api2:
     image: villanidev/rinha-de-backend-2026:20260528101651
+    container_name: api2
     cpuset: "2"
     environment:
       SERVER_SOCKET_PATH: /sockets/api2.sock
@@ -51,22 +58,26 @@ services:
       APP_VECTOR_SEARCH_NPROBE: "2"
       APP_VECTOR_SEARCH_CANDIDATES: "10"
       APP_VECTOR_SEARCH_RERANK_ENABLED: "true"
-      APP_VECTOR_SEARCH_RERANK_NPROBE: "32"
+      APP_VECTOR_SEARCH_RERANK_NPROBE: "24"
       APP_VECTOR_SEARCH_RERANK_CANDIDATES: "10"
       APP_FRAUD_DEBUG: "false"
     volumes:
       - sockets:/sockets
-    networks:
-      - rinha
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     deploy:
       resources:
         limits:
           cpus: "0.425"
-          memory: "150MB"
+          memory: "147MB"
 
 volumes:
   sockets:
-
-networks:
-  rinha:
-    driver: bridge
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=9m"
+  
