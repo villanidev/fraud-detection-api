@@ -22,7 +22,7 @@ public class BruteForceIndex implements VectorIndex {
     }
 
     @Override
-    public int search(float[] query, int topK, int[] neighbors, float[] distances) {
+    public int search(float[] query, int topK, int candidates, int[] neighbors, float[] distances) {
         Arrays.fill(distances, Float.MAX_VALUE);
         Arrays.fill(neighbors, -1);
 

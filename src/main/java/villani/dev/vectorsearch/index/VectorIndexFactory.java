@@ -29,10 +29,10 @@ import java.nio.channels.FileChannel;
 public class VectorIndexFactory {
 
     private static final String DEFAULT_INDEX = "ivf_pq";
-    private static final int DEFAULT_NPROBE = 4;
+    private static final int DEFAULT_NPROBE = 2;
     private static final int DEFAULT_CANDIDATES = 10;
     private static final boolean DEFAULT_RERANK = true;
-    private static final int DEFAULT_RERANK_NPROBE = 32;
+    private static final int DEFAULT_RERANK_NPROBE = 8;
     private static final int DEFAULT_RERANK_CANDIDATES = 10;
 
     private final String indexType;
@@ -46,13 +46,20 @@ public class VectorIndexFactory {
     public VectorIndexFactory(Config config) {
         Config vs = config.get("app.vector-search");
         this.indexType  = vs.get("index").asString().orElse(DEFAULT_INDEX);
+        System.out.println("Configured vector search index: " + indexType);
         this.nprobe     = vs.get("nprobe").asInt().orElse(DEFAULT_NPROBE);
+        System.out.println("Configured nprobe: " + nprobe);
         this.candidates = vs.get("candidates").asInt().orElse(DEFAULT_CANDIDATES);
+        System.out.println("Configured candidates: " + candidates);
+
         // Expect nested `rerank` config with keys: enabled, nprobe, candidates
         Config rerankNode = vs.get("rerank");
         this.rerank = rerankNode.get("enabled").asBoolean().orElse(DEFAULT_RERANK);
+        System.out.println("Configured rerank: " + rerank);
         this.rerankNprobe = rerankNode.get("nprobe").asInt().orElse(DEFAULT_RERANK_NPROBE);
+        System.out.println("Configured rerank nprobe: " + rerankNprobe);
         this.rerankCandidates = rerankNode.get("candidates").asInt().orElse(DEFAULT_RERANK_CANDIDATES);
+        System.out.println("Configured rerank candidates: " + rerankCandidates);
     }
 
     /**
@@ -79,23 +86,20 @@ public class VectorIndexFactory {
                               long vectorsOffset,
                               int vectorCount,
                               float[] bboxMin,
-                              float[] bboxMax) {
+                              float[] bboxMax,
+                              int[] clusterOfId) {
 
         VectorIndex base = switch (indexType) {
             case "brute_force" -> new BruteForceIndex(vectors, labels);
             case "ivf_pq" -> new IVFPQIndex(centroids, idsByCluster, codesByCluster,
-                                              labels, pq, nprobe, candidates, bboxMin, bboxMax);
+                                              labels, pq, nprobe, candidates);
             case "hnsw" -> new HNSWIndex(labels);
             default -> throw new IllegalArgumentException(
                     "Unknown vector-search index: '" + indexType + "'. Valid values: brute_force, ivf_pq, hnsw");
         };
 
         if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
-            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, rerankNprobe, rerankCandidates);
-        }
-
-        if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
-            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, rerankNprobe, rerankCandidates);
+            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, rerankNprobe, rerankCandidates, bboxMin, bboxMax, clusterOfId);
         }
 
         return base;
@@ -119,13 +123,13 @@ public class VectorIndexFactory {
         VectorIndex base = switch (indexType) {
             case "brute_force" -> new BruteForceIndex(vectors, labels);
                 case "ivf_pq" -> new IVFPQIndex(centroids, idsByCluster, codesByCluster,
-                    labels, pq, nprobe, candidates, null, null);
+                    labels, pq, nprobe, candidates);
             case "hnsw" -> new HNSWIndex(labels);
             default -> throw new IllegalArgumentException("Unknown index type: " + indexType);
         };
 
         if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
-            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, rerankNprobe, rerankCandidates);
+            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, rerankNprobe, rerankCandidates, null, null, null);
         }
 
         return base;

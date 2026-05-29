@@ -27,13 +27,6 @@ public class IVFPQIndex implements VectorIndex {
     private final int nprobe;
     private final int candidates;
 
-    // Optional bounding-box arrays (linearized): length = K * DIMS
-    private final float[] bboxMin;
-    private final float[] bboxMax;
-
-    // ThreadLocal filtered probe list to avoid allocations when filtering clusters by BBox
-    private final ThreadLocal<int[]> tlFilteredProbes;
-
     // ThreadLocal scratch arrays — eliminates ~11KB of heap allocation per request.
     // centroidDist/centroidOrder are K=512 floats/ints; adcTable is M×256 floats.
     private final ThreadLocal<float[]>   tlCentroidDist;
@@ -47,21 +40,7 @@ public class IVFPQIndex implements VectorIndex {
                       ProductQuantizer pq,
                       int nprobe,
                       int candidates) {
-        this(centroids, idsByCluster, codesByCluster, labels, pq, nprobe, candidates, null, null);
-    }
-
-    /**
-     * Extended constructor that accepts optional linearized bbox arrays. Pass `null` to disable BBox filtering.
-     */
-    public IVFPQIndex(float[][] centroids,
-                      int[][] idsByCluster,
-                      short[][] codesByCluster,
-                      byte[] labels,
-                      ProductQuantizer pq,
-                      int nprobe,
-                      int candidates,
-                      float[] bboxMin,
-                      float[] bboxMax) {
+        System.out.println("Initializing IVFPQIndex with " + centroids.length + " centroids. And nprobe=" + nprobe + ", candidates=" + candidates + ".");
         this.K = centroids.length;
         // Flatten [K][14] → float[K*14] to eliminate pointer chasing in the hot centroid scan loop
         this.centroidsFlat = new float[K * DIMS];
@@ -73,18 +52,15 @@ public class IVFPQIndex implements VectorIndex {
         this.pq = pq;
         this.nprobe = nprobe;
         this.candidates = candidates;
-        this.bboxMin = bboxMin;
-        this.bboxMax = bboxMax;
 
         this.tlCentroidDist  = ThreadLocal.withInitial(() -> new float[K]);
         this.tlCentroidOrder = ThreadLocal.withInitial(() -> new int[K]);
         this.tlAdcTable      = ThreadLocal.withInitial(() -> new float[ProductQuantizer.M][ProductQuantizer.CODEBOOK_SIZE]);
-        this.tlFilteredProbes = ThreadLocal.withInitial(() -> new int[K]);
     }
 
     @Override
-    public int search(float[] query, int topK, int[] neighbors, float[] distances) {
-        return searchWithParams(query, topK, this.nprobe, this.candidates, neighbors, distances);
+    public int search(float[] query, int topK, int candidates, int[] neighbors, float[] distances) {
+        return searchWithParams(query, topK, this.nprobe, candidates, neighbors, distances);
     }
 
     /**
@@ -106,26 +82,24 @@ public class IVFPQIndex implements VectorIndex {
         pq.buildAdcTable(query, adcTable);
 
         // --- Step 3: Scan every cluster ---
+        // Defensive behavior: use the provided distances buffer length as an upper bound
+        // to avoid ArrayIndexOutOfBounds in case callers pass smaller arrays.
+
         Arrays.fill(distances, Float.MAX_VALUE);
         Arrays.fill(neighbors, -1);
-
-        int actualProbes = Math.min(nprobeParam, K);
-
-        // Apply BBox filtering (if bbox arrays provided) to reduce clusters that need scanning.
-        int[] filtered = tlFilteredProbes.get();
-        int filteredCount = filterClustersByBBox(query, centroidOrder, actualProbes, bboxMin, bboxMax, candidatesParam, distances, filtered);
 
         // Hot-loop optimizations: cache locals, avoid repeated field/array lookups,
         // and inline the small insertSorted logic to remove method-call overhead.
         final ProductQuantizer pqLocal = this.pq;
         final float[][] adcLocal = adcTable;
-        final int candidatesLocal = candidatesParam;
-        final int worstIndex = Math.max(0, candidatesLocal - 1);
         final int[] neighborsLocal = neighbors;
         final float[] distancesLocal = distances;
+        final int candidatesLocal = Math.min(candidatesParam, distancesLocal.length);
+        final int worstIndex = Math.max(0, candidatesLocal - 1);
 
-        for (int p = 0; p < filteredCount; p++) {
-            int clusterIdx = filtered[p];
+        final int actualProbes = Math.min(nprobeParam, K);
+        for (int p = 0; p < actualProbes; p++) {
+            int clusterIdx = centroidOrder[p];
             int[] ids = idsByCluster[clusterIdx];
             short[] codes = codesByCluster[clusterIdx]; // flat: codes for vector i at offset i*M
 
@@ -252,41 +226,6 @@ public class IVFPQIndex implements VectorIndex {
         float d13 = query[13] - flat[offset + 13];
         return d0*d0 + d1*d1 + d2*d2 + d3*d3 + d4*d4 + d5*d5 + d6*d6 +
                 d7*d7 + d8*d8 + d9*d9 + d10*d10 + d11*d11 + d12*d12 + d13*d13;
-    }
-
-    /**
-     * Filters the first `actualProbes` entries in `centroidOrder` by computing the lower-bound
-     * squared-distance from `query` to the cluster's BBox. Writes passing cluster indices into `out`
-     * and returns the number of clusters to scan.
-     *
-     * Behaviour: if `bboxMin` or `bboxMax` is null, all clusters pass through (no filtering).
-     * This routine performs zero heap allocations and uses the provided `out` buffer.
-     */
-    private static int filterClustersByBBox(final float[] query,
-                                           final int[] centroidOrder,
-                                           final int actualProbes,
-                                           final float[] bboxMin,
-                                           final float[] bboxMax,
-                                           final int candidatesParam,
-                                           final float[] distances,
-                                           final int[] out) {
-        if (bboxMin == null || bboxMax == null) {
-            // copy the first actualProbes indices to out
-            for (int p = 0; p < actualProbes; p++) out[p] = centroidOrder[p];
-            return actualProbes;
-        }
-
-        int outCount = 0;
-        float worst = distances[Math.max(0, candidatesParam - 1)];
-        for (int p = 0; p < actualProbes; p++) {
-            int clusterIdx = centroidOrder[p];
-            int baseIdx = clusterIdx * DIMS;
-            float lb = villani.dev.vectorsearch.index.strategies.bbox.BBoxEvaluator.minDistToBBox(query, bboxMin, bboxMax, baseIdx);
-            if (lb < worst) {
-                out[outCount++] = clusterIdx;
-            }
-        }
-        return outCount;
     }
 
     @Override

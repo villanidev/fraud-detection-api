@@ -170,12 +170,17 @@ public class VectorStore {
             // --- Inverted lists ---
             int[][] idsByCluster = new int[K][];
             short[][] codesByCluster = new short[K][];
+            int[] clusterOfId = new int[N];
+            Arrays.fill(clusterOfId, -1);
             for (int c = 0; c < K; c++) {
                 int count = readInt(channel, readBuf);
                 idsByCluster[c] = new int[count];
                 codesByCluster[c] = new short[count * ProductQuantizer.M];
                 for (int i = 0; i < count; i++) {
                     idsByCluster[c][i] = readInt(channel, readBuf);
+                    // record reverse mapping id -> cluster
+                    int vid = idsByCluster[c][i];
+                    if (vid >= 0 && vid < N) clusterOfId[vid] = c;
                     // Lê exatamente M shorts do código
                     for (int m = 0; m < ProductQuantizer.M; m++) {
                         codesByCluster[c][i * ProductQuantizer.M + m] = readShort(channel, readBuf);
@@ -196,10 +201,10 @@ public class VectorStore {
                 this.bboxMin = bboxMinLocal;
                 this.bboxMax = bboxMaxLocal;
                 this.index = factory.create(centroids, idsByCluster, codesByCluster,
-                        vectors, labels, pq, this.vectorsChannel, this.vectorsOffset, N, bboxMinLocal, bboxMaxLocal);
+                        vectors, labels, pq, this.vectorsChannel, this.vectorsOffset, N, bboxMinLocal, bboxMaxLocal, clusterOfId);
             } else {
                 this.index = factory.create(centroids, idsByCluster, codesByCluster,
-                        vectors, labels, pq, this.vectorsChannel, this.vectorsOffset, N, null, null);
+                        vectors, labels, pq, this.vectorsChannel, this.vectorsOffset, N, null, null, clusterOfId);
             }
             this.norms = loadedNorms;
             this.mccRisk = loadedMcc;
@@ -277,7 +282,11 @@ public class VectorStore {
     }
 
     public int search(float[] query, int topK, int[] neighbors, float[] distances) {
-        return index.search(query, topK, neighbors, distances);
+        return index.search(query, topK, distances.length, neighbors, distances);
+    }
+
+    public int search(float[] query, int topK, int candidates, int[] neighbors, float[] distances) {
+        return index.search(query, topK, candidates, neighbors, distances);
     }
 
     public byte[] getIndexLabels() {

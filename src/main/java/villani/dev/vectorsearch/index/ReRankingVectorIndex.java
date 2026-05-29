@@ -47,12 +47,21 @@ public class ReRankingVectorIndex implements VectorIndex {
         return buf;
     });
 
+    // Optional bbox arrays and reverse mapping id->cluster for rerank pruning
+    private final float[] bboxMin;
+    private final float[] bboxMax;
+    private final int[] clusterOfId;
+
     public ReRankingVectorIndex(VectorIndex inner,
                                 FileChannel vectorsChannel,
                                 long vectorsOffset,
                                 int vectorCount,
                                 int rerankNprobe,
-                                int rerankCandidates) {
+                                int rerankCandidates,
+                                float[] bboxMin,
+                                float[] bboxMax,
+                                int[] clusterOfId) {
+        System.out.println("Initializing ReRankingVectorIndex with rerankNprobe=" + rerankNprobe + " and rerankCandidates=" + rerankCandidates);
         this.inner = inner;
         this.vectorsChannel = vectorsChannel;
         this.vectorsOffset = vectorsOffset;
@@ -64,22 +73,28 @@ public class ReRankingVectorIndex implements VectorIndex {
         this.tlCoarseDists     = ThreadLocal.withInitial(() -> new float[candidates]);
         this.tlExactDists      = ThreadLocal.withInitial(() -> new float[candidates]);
         this.tlVec             = ThreadLocal.withInitial(() -> new float[DIMS]);
+        this.bboxMin = bboxMin;
+        this.bboxMax = bboxMax;
+        this.clusterOfId = clusterOfId;
     }
 
     @Override
-    public int search(float[] query, int topK, int[] neighbors, float[] distances) {
+    public int search(float[] query, int topK, int candidatesArg, int[] neighbors, float[] distances) {
         int[] coarseNeighbors = tlCoarseNeighbors.get();
         float[] coarseDists   = tlCoarseDists.get();
 
-        inner.search(query, candidates, coarseNeighbors, coarseDists);
+        // request coarse search to return up to this instance's candidate window
+        inner.search(query, this.candidates, this.candidates, coarseNeighbors, coarseDists);
 
         float[] exactDists = tlExactDists.get();
-        computeExactDistancesForCandidates(query, coarseNeighbors, candidates, exactDists);
+        // initial pass: no pruning (no current worst available)
+        computeExactDistancesForCandidates(query, coarseNeighbors, candidates, exactDists, Float.MAX_VALUE);
         mergeExactIntoTopK(coarseNeighbors, candidates, exactDists, topK, neighbors, distances);
 
         int fraudCount = computeFraudCount(coarseNeighbors, topK);
 
         if (fraudCount == 2 || fraudCount == 3) {
+            //System.out.println("Gray zone detected (fraudCount=" + fraudCount + "), reranking with larger probe/candidate settings.");
             // Re-run coarse search with larger probe/candidate settings
             int[] newCoarseNeighbors;
             float[] newCoarseDists;
@@ -92,14 +107,17 @@ public class ReRankingVectorIndex implements VectorIndex {
             }
 
             if (inner instanceof IVFPQIndex ivf) {
+                // use configured rerank params
                 ivf.searchWithParams(query, rerankCandidates, rerankNprobe, rerankCandidates, newCoarseNeighbors, newCoarseDists);
             } else {
-                inner.search(query, rerankCandidates, newCoarseNeighbors, newCoarseDists);
+                inner.search(query, rerankCandidates, rerankCandidates, newCoarseNeighbors, newCoarseDists);
             }
 
             // Recompute exact distances for the expanded candidate set and merge
             float[] exactDists2 = new float[newCoarseNeighbors.length];
-            computeExactDistancesForCandidates(query, newCoarseNeighbors, newCoarseNeighbors.length, exactDists2);
+            // use current worst from distances to allow bbox pruning before expensive reads
+            float currentWorst = distances[topK - 1];
+            computeExactDistancesForCandidates(query, newCoarseNeighbors, newCoarseNeighbors.length, exactDists2, currentWorst);
             mergeExactIntoTopK(newCoarseNeighbors, newCoarseNeighbors.length, exactDists2, topK, neighbors, distances);
 
             // Recompute fraud count after expanded rerank
@@ -109,7 +127,50 @@ public class ReRankingVectorIndex implements VectorIndex {
         return fraudCount;
     }
 
-    private void computeExactDistancesForCandidates(float[] query, int[] candidateIds, int candidateCount, float[] outExactDists) {
+    @Override
+    public int searchWithParams(float[] query, int topK, int nprobeParam, int candidatesParam, int[] neighbors, float[] distances) {
+        int[] coarseNeighbors = tlCoarseNeighbors.get();
+        float[] coarseDists   = tlCoarseDists.get();
+
+        // initial coarse scan uses this.index's configured candidate window
+        inner.search(query, this.candidates, this.candidates, coarseNeighbors, coarseDists);
+
+        float[] exactDists = tlExactDists.get();
+        computeExactDistancesForCandidates(query, coarseNeighbors, this.candidates, exactDists, Float.MAX_VALUE);
+        mergeExactIntoTopK(coarseNeighbors, this.candidates, exactDists, topK, neighbors, distances);
+
+        int fraudCount = computeFraudCount(coarseNeighbors, topK);
+
+        if (fraudCount == 2 || fraudCount == 3) {
+            // expanded scan: use the supplied nprobeParam and candidatesParam
+            int[] newCoarseNeighbors;
+            float[] newCoarseDists;
+            if (candidatesParam <= this.candidates) {
+                newCoarseNeighbors = coarseNeighbors;
+                newCoarseDists = coarseDists;
+            } else {
+                newCoarseNeighbors = new int[candidatesParam];
+                newCoarseDists = new float[candidatesParam];
+            }
+
+            if (inner instanceof IVFPQIndex ivf) {
+                ivf.searchWithParams(query, topK, nprobeParam, candidatesParam, newCoarseNeighbors, newCoarseDists);
+            } else {
+                inner.search(query, topK, candidatesParam, newCoarseNeighbors, newCoarseDists);
+            }
+
+            float[] exactDists2 = new float[newCoarseNeighbors.length];
+            float currentWorst = distances[topK - 1];
+            computeExactDistancesForCandidates(query, newCoarseNeighbors, newCoarseNeighbors.length, exactDists2, currentWorst);
+            mergeExactIntoTopK(newCoarseNeighbors, newCoarseNeighbors.length, exactDists2, topK, neighbors, distances);
+
+            fraudCount = computeFraudCount(neighbors, topK);
+        }
+
+        return fraudCount;
+    }
+
+    private void computeExactDistancesForCandidates(float[] query, int[] candidateIds, int candidateCount, float[] outExactDists, float currentWorst) {
         float[] vec = tlVec.get();
         for (int i = 0; i < candidateCount; i++) {
             int id = candidateIds[i];
@@ -117,6 +178,20 @@ public class ReRankingVectorIndex implements VectorIndex {
                 outExactDists[i] = Float.MAX_VALUE;
                 continue;
             }
+
+            // If we have bbox and cluster mapping, perform cheap lower-bound test
+            if (bboxMin != null && bboxMax != null && clusterOfId != null) {
+                int cluster = clusterOfId[id];
+                if (cluster >= 0) {
+                    int base = cluster * DIMS;
+                    float lb = villani.dev.vectorsearch.index.strategies.bbox.BBoxEvaluator.minDistToBBox(query, bboxMin, bboxMax, base);
+                    if (lb >= currentWorst) {
+                        outExactDists[i] = Float.MAX_VALUE;
+                        continue; // prune: vector cannot beat current worst
+                    }
+                }
+            }
+
             try {
                 float[] readVec = readVector(id);
                 System.arraycopy(readVec, 0, vec, 0, DIMS);

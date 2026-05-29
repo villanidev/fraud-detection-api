@@ -54,7 +54,7 @@ public class FraudCheckService {
         // 2 Busca K=5
         int[] neighbors = new int[5];
         float[] distances = new float[5];
-        int fraudCount = vectorStore.search(emb, 5, neighbors, distances);
+        int fraudCount = vectorStore.search(emb, 5, distances.length, neighbors, distances);
         long t2 = System.nanoTime();
 
         // 3 Score
@@ -109,7 +109,7 @@ public class FraudCheckService {
         // 2 Busca K=5
         int[] neighbors = new int[5];
         float[] distances = new float[5];
-        int fraudCount = vectorStore.search(emb, 5, neighbors, distances);
+        int fraudCount = vectorStore.search(emb, 5, distances.length, neighbors, distances);
 
         // 3 Score ta cacheado
         return DecisionResponse.get(fraudCount);

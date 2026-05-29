@@ -32,7 +32,7 @@ public class RecallEvaluator {
         IntStream.range(0, nQueries).parallel().forEach(q -> {
             int[] neighbors = new int[k];
             float[] distances = new float[k];
-            brute.search(queries[q], k, neighbors, distances); // o retorno (fraudCount) é ignorado
+            brute.search(queries[q], k, distances.length, neighbors, distances); // o retorno (fraudCount) é ignorado
             groundTruth[q] = neighbors;
         });
 
@@ -76,7 +76,7 @@ public class RecallEvaluator {
      * @param k        número de vizinhos a retornar
      * @return objeto com vizinhos aproximados e métricas (latência, QPS)
      */
-    public static BenchmarkResult benchmark(VectorIndex index, float[][] queries, int k) {
+    public static BenchmarkResult benchmark(VectorIndex index, float[][] queries, int k, int expandedNprobe, int expandedCandidates) {
         /*System.out.printf("[recall] - Running %s queries in the index (%s) and collecting neighbors + time metrics.%n",
                 k, index.getClass().getSimpleName());*/
 
@@ -89,7 +89,7 @@ public class RecallEvaluator {
             int[] neigh = new int[k];
             float[] dist = new float[k];
             long start = System.nanoTime();
-            index.search(queries[q], k, neigh, dist);
+            index.searchWithParams(queries[q], k, expandedNprobe, expandedCandidates, neigh, dist);
             long elapsed = System.nanoTime() - start;
             totalNanos += elapsed;
             neighbors[q] = neigh;

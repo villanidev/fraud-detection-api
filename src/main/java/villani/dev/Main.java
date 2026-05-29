@@ -9,7 +9,6 @@ import villani.dev.preprocessing.DataReader;
 import villani.dev.preprocessing.KMeansEvaluator;
 import villani.dev.preprocessing.RecallEvaluator;
 import villani.dev.vectorsearch.index.VectorIndex;
-import villani.dev.vectorsearch.index.strategies.ivfpq.IVFPQIndex;
 import villani.dev.vectorsearch.retrieval.VectorStore;
 
 import java.io.IOException;
@@ -116,7 +115,7 @@ public class Main {
         DataReader.ReferenceData ref = dataReader.loadReferences(Path.of("src/main/resources/references.json.gz"));
         float[] vectorsFlat = ref.flat();
         int N = ref.count();
-        int[] kCandidates = IntStream.iterate(1024, n -> n <= 4096, n -> n + 64).toArray();
+        int[] kCandidates = IntStream.iterate(1024, n -> n <= 2560, n -> n + 64).toArray();
 
         System.out.printf("[evaluation] Running KMeans evaluation with cluster candidates (%s)...%n",
                 Arrays.toString(kCandidates));
@@ -157,23 +156,30 @@ public class Main {
             System.arraycopy(vectorsFlat, indices[i] * 14, sampleVectors[i], 0, 14);
         }
 
-        int[] nprobes = { 1, 2, 4, 8, 16, 32, 64 };
-        int[] candidates = { 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 };
+        int[] nprobes = { 2, 4, 8, 16, 32, 64 };
+        int[] candidates = { 10, 20, 30, 40, 50};
+        // Parameters to exercise for expanded rerank (nprobeParam, ncandidatesParam)
+        int[] expandedNprobes = new int[] { 8, 16, 32, 64 };
+        int[] expandedCandidates = new int[] { 50, 75, 100 };
 
         int[][] groundTruth = RecallEvaluator.computeGroundTruth(sampleVectors, ref.flat(), 5);
 
-        System.out.println("nprobe,candidates,Recall@5,Latência(ms),QPS");
+        System.out.println("coarse_nprobe,coarse_candidates,expanded_nprobe,expanded_candidates,Recall@5,Latency(ms),QPS");
         for (int np : nprobes) {
             //System.out.printf("[recall] running probe - %s from %s", np, Arrays.toString(nprobes));
             for (int cand : candidates) {
                 //System.out.printf("[recall] running candidates - %s from %s", cand, Arrays.toString(candidates));
-                // Cria índice com os parâmetros atuais
+                // Cria índice com os parâmetros atuais (coarse)
                 VectorIndex index = vectorStore.createIndexForBenchmark(np, cand);
 
-                RecallEvaluator.BenchmarkResult res = RecallEvaluator.benchmark(index, sampleVectors, 5);
-                double recall = RecallEvaluator.evaluateRecall(groundTruth, res.neighbors(), 5);
-                System.out.printf("%d,%d,%.4f,%.2f,%.1f%n",
-                        np, cand, recall, res.avgLatencyMs(), res.qps());
+                for (int enp : expandedNprobes) {
+                    for (int ec : expandedCandidates) {
+                        RecallEvaluator.BenchmarkResult res = RecallEvaluator.benchmark(index, sampleVectors, 5, enp, ec);
+                        double recall = RecallEvaluator.evaluateRecall(groundTruth, res.neighbors(), 5);
+                        System.out.printf("%d,%d,%d,%d,%.4f,%.2f,%.1f%n",
+                                np, cand, enp, ec, recall, res.avgLatencyMs(), res.qps());
+                    }
+                }
             }
         }
 

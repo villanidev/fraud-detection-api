@@ -18,7 +18,7 @@ public class HNSWIndex implements VectorIndex {
     }
 
     @Override
-    public int search(float[] query, int topK, int[] neighbors, float[] distances) {
+    public int search(float[] query, int topK, int candidates, int[] neighbors, float[] distances) {
         throw new UnsupportedOperationException("HNSW index is not yet implemented");
     }
 
