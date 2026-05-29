@@ -45,14 +45,20 @@ public class VectorIndexFactory {
     @Service.Inject
     public VectorIndexFactory(Config config) {
         Config vs = config.get("app.vector-search");
-        this.indexType  = vs.get("index").asString().orElse(DEFAULT_INDEX);
-        this.nprobe     = vs.get("nprobe").asInt().orElse(DEFAULT_NPROBE);
+        this.indexType = vs.get("index").asString().orElse(DEFAULT_INDEX);
+        System.out.println("Configured vector search index: " + indexType);
+        this.nprobe = vs.get("nprobe").asInt().orElse(DEFAULT_NPROBE);
+        System.out.println("Configured nprobe: " + nprobe);
         this.candidates = vs.get("candidates").asInt().orElse(DEFAULT_CANDIDATES);
-        // Expect nested `rerank` config with keys: enabled, nprobe, candidates
+        System.out.println("Configured candidates: " + candidates);
+
         Config rerankNode = vs.get("rerank");
         this.rerank = rerankNode.get("enabled").asBoolean().orElse(DEFAULT_RERANK);
+        System.out.println("Configured rerank: " + rerank);
         this.rerankNprobe = rerankNode.get("nprobe").asInt().orElse(DEFAULT_RERANK_NPROBE);
+        System.out.println("Configured rerank nprobe: " + rerankNprobe);
         this.rerankCandidates = rerankNode.get("candidates").asInt().orElse(DEFAULT_RERANK_CANDIDATES);
+        System.out.println("Configured rerank candidates: " + rerankCandidates);
     }
 
     /**

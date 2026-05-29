@@ -10,14 +10,13 @@ server:
 # Properties customizadas
 app:
   vector-search:
-    #index: "brute_force"
-    index: "ivf_pq"
+    index: "ivf_pq" #"brute_force"
     clusters: 2176
-    nprobe: 2
+    nprobe: 20
     candidates: 10
     rerank:
       enabled: true
-      nprobe: 16
+      nprobe: 32
       candidates: 10
   fraud:
     debug: false

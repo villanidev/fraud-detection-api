@@ -40,6 +40,8 @@ public class IVFPQIndex implements VectorIndex {
                       ProductQuantizer pq,
                       int nprobe,
                       int candidates) {
+        System.out.println("Initializing IVFPQIndex with " + centroids.length + " centroids. And nprobe=" + nprobe + ", " +
+                "candidates=" + candidates + ".");
         this.K = centroids.length;
         // Flatten [K][14] → float[K*14] to eliminate pointer chasing in the hot centroid scan loop
         this.centroidsFlat = new float[K * DIMS];

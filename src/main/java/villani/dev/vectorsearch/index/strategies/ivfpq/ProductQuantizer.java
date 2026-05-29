@@ -10,7 +10,7 @@ public class ProductQuantizer {
 
     public static final int M = 7;       // subquantizers (one per subspace)
     public static final int SUB_D = 2;   // dimensions per subspace (14/7)
-    public static final int CODEBOOK_SIZE = 4096;
+    public static final int CODEBOOK_SIZE = 2048;
 
     private final KMeans kMeans;
     private float[][][] codebooks; // [M][CODEBOOK_SIZE][SUB_D] — kept for serialization + encode()

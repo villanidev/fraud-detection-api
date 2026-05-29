@@ -32,7 +32,7 @@ public class ReRankingVectorIndex implements VectorIndex {
     private final long vectorsOffset;
     private final int vectorCount;
     private final int candidates;
-    private final int rerankNprobe;
+    private int rerankNprobe;
     private final int rerankCandidates;
 
     // Scratch buffers usados no hot path da busca (apenas cálculo, sem I/O)
@@ -53,6 +53,7 @@ public class ReRankingVectorIndex implements VectorIndex {
                                 int vectorCount,
                                 int rerankNprobe,
                                 int rerankCandidates) {
+        System.out.println("Initializing ReRankingVectorIndex with rerankNprobe=" + rerankNprobe + " and rerankCandidates=" + rerankCandidates);
         this.inner = inner;
         this.vectorsChannel = vectorsChannel;
         this.vectorsOffset = vectorsOffset;
@@ -71,7 +72,9 @@ public class ReRankingVectorIndex implements VectorIndex {
         int[] coarseNeighbors = tlCoarseNeighbors.get();
         float[] coarseDists   = tlCoarseDists.get();
 
-        inner.search(query, candidates, coarseNeighbors, coarseDists);
+        int firstCheck = inner.search(query, candidates, coarseNeighbors, coarseDists);
+
+        if (firstCheck == 0) return 0;
 
         float[] exactDists = tlExactDists.get();
         computeExactDistancesForCandidates(query, coarseNeighbors, candidates, exactDists);
@@ -80,16 +83,10 @@ public class ReRankingVectorIndex implements VectorIndex {
         int fraudCount = computeFraudCount(coarseNeighbors, topK);
 
         if (fraudCount == 2 || fraudCount == 3) {
+            //System.out.println("Grey zone, count: " + fraudCount);
             // Re-run coarse search with larger probe/candidate settings
-            int[] newCoarseNeighbors;
-            float[] newCoarseDists;
-            if (rerankCandidates <= candidates) {
-                newCoarseNeighbors = coarseNeighbors;
-                newCoarseDists = coarseDists;
-            } else {
-                newCoarseNeighbors = new int[rerankCandidates];
-                newCoarseDists = new float[rerankCandidates];
-            }
+            int[] newCoarseNeighbors = new int[rerankCandidates];
+            float[] newCoarseDists = new float[rerankCandidates];
 
             if (inner instanceof IVFPQIndex ivf) {
                 ivf.searchWithParams(query, rerankCandidates, rerankNprobe, rerankCandidates, newCoarseNeighbors, newCoarseDists);
