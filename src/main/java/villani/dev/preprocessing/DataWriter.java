@@ -94,12 +94,15 @@ public class DataWriter {
             // --- MCC table ---
             for (int i = 0; i < MCC_TABLE_SIZE; i++) out.writeFloat(mccRisks[i]);
 
-            // --- PQ codebooks ---
-            float[][][] codebooks = pq.getCodebooks();
+            // --- PQ codebooks (flattened) ---
+            float[] codebooksFlat = pq.getCodebooksFlat();
+            // layout: (m * CODEBOOK_SIZE + c) * SUB_D + d
             for (int m = 0; m < ProductQuantizer.M; m++) {
+                int base = m * ProductQuantizer.CODEBOOK_SIZE * ProductQuantizer.SUB_D;
                 for (int c = 0; c < ProductQuantizer.CODEBOOK_SIZE; c++) {
-                    out.writeFloat(codebooks[m][c][0]);
-                    out.writeFloat(codebooks[m][c][1]);
+                    int idx = base + c * ProductQuantizer.SUB_D;
+                    out.writeFloat(codebooksFlat[idx]);
+                    out.writeFloat(codebooksFlat[idx + 1]);
                 }
             }
 
