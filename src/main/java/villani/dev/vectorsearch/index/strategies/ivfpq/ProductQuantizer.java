@@ -100,31 +100,29 @@ public class ProductQuantizer {
 
     /**
      * Precomputes the ADC (Asymmetric Distance Computation) table for a query.
-     * table[m][c] = squared distance from query subvector m to codebook[m][c].
-     * This is computed once per query and reused for all candidate vectors.
+     * Returns a flat table of length M * CODEBOOK_SIZE where entry for (m,c)
+     * is at index (m * CODEBOOK_SIZE + c). This layout improves cache locality.
      */
-    public float[][] buildAdcTable(float[] query) {
-        float[][] table = new float[M][CODEBOOK_SIZE];
-        buildAdcTable(query, table);
+    public float[] buildAdcTableFlat(float[] query) {
+        float[] table = new float[M * CODEBOOK_SIZE];
+        buildAdcTableFlat(query, table);
         return table;
     }
 
     /**
-     * In-place variant — writes into a pre-allocated table (avoids float[M][256] allocation per request).
-     * Uses the flat codebook layout [M][C*SUB_D] for cache-friendly sequential access
-     * (no pointer chasing through float[M][256][2]).
-     * Use with a ThreadLocal-cached table for zero-allocation hot path.
+     * In-place variant — writes into a pre-allocated flat table (avoids allocation per request).
+     * Table length must be at least M * CODEBOOK_SIZE.
      */
-    public void buildAdcTable(float[] query, float[][] table) {
+    public void buildAdcTableFlat(float[] query, float[] table) {
         for (int m = 0; m < M; m++) {
             float q0 = query[m * SUB_D];
             float q1 = query[m * SUB_D + 1];
             float[] cb = cbFlat[m];
-            float[] row = table[m];
+            int base = m * CODEBOOK_SIZE;
             for (int c = 0; c < CODEBOOK_SIZE; c++) {
                 float d0 = q0 - cb[c * 2];
                 float d1 = q1 - cb[c * 2 + 1];
-                row[c] = d0 * d0 + d1 * d1;
+                table[base + c] = d0 * d0 + d1 * d1;
             }
         }
     }
@@ -134,14 +132,15 @@ public class ProductQuantizer {
      * using the precomputed ADC table. Offset-based variant for flat byte[] storage
      * (avoids 3M small byte[7] object allocations and their JVM header overhead).
      */
-    public float adcDistance(float[][] table, short[] codes, int offset) {
-        return table[0][codes[offset]     & 0xFFFF]
-             + table[1][codes[offset + 1] & 0xFFFF]
-             + table[2][codes[offset + 2] & 0xFFFF]
-             + table[3][codes[offset + 3] & 0xFFFF]
-             + table[4][codes[offset + 4] & 0xFFFF]
-             + table[5][codes[offset + 5] & 0xFFFF]
-             + table[6][codes[offset + 6] & 0xFFFF];
+    public float adcDistanceFlat(float[] tableFlat, short[] codes, int offset) {
+        // tableFlat is M * CODEBOOK_SIZE; access at m*CODEBOOK_SIZE + code
+        return tableFlat[0 * CODEBOOK_SIZE + (codes[offset]     & 0xFFFF)]
+             + tableFlat[1 * CODEBOOK_SIZE + (codes[offset + 1] & 0xFFFF)]
+             + tableFlat[2 * CODEBOOK_SIZE + (codes[offset + 2] & 0xFFFF)]
+             + tableFlat[3 * CODEBOOK_SIZE + (codes[offset + 3] & 0xFFFF)]
+             + tableFlat[4 * CODEBOOK_SIZE + (codes[offset + 4] & 0xFFFF)]
+             + tableFlat[5 * CODEBOOK_SIZE + (codes[offset + 5] & 0xFFFF)]
+             + tableFlat[6 * CODEBOOK_SIZE + (codes[offset + 6] & 0xFFFF)];
     }
 
     public float[][][] getCodebooks() {
