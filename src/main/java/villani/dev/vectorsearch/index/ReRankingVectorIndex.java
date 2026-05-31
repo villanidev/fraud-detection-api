@@ -46,6 +46,9 @@ public class ReRankingVectorIndex implements VectorIndex {
         buf.order(ByteOrder.BIG_ENDIAN);
         return buf;
     });
+    private final ThreadLocal<int[]> tlReRankNeighbors;
+    private final ThreadLocal<float[]> tlReRankDists;
+    private final ThreadLocal<float[]> tlReRankExactDists;
 
     public ReRankingVectorIndex(VectorIndex inner,
                                 FileChannel vectorsChannel,
@@ -65,6 +68,9 @@ public class ReRankingVectorIndex implements VectorIndex {
         this.tlCoarseDists     = ThreadLocal.withInitial(() -> new float[candidates]);
         this.tlExactDists      = ThreadLocal.withInitial(() -> new float[candidates]);
         this.tlVec             = ThreadLocal.withInitial(() -> new float[DIMS]);
+        this.tlReRankNeighbors   = ThreadLocal.withInitial(() -> new int[rerankCandidates]);
+        this.tlReRankDists       = ThreadLocal.withInitial(() -> new float[rerankCandidates]);
+        this.tlReRankExactDists  = ThreadLocal.withInitial(() -> new float[rerankCandidates]);
     }
 
     @Override
@@ -85,19 +91,19 @@ public class ReRankingVectorIndex implements VectorIndex {
         if (fraudCount == 2 || fraudCount == 3) {
             //System.out.println("Grey zone, count: " + fraudCount);
             // Re-run coarse search with larger probe/candidate settings
-            int[] newCoarseNeighbors = new int[rerankCandidates];
-            float[] newCoarseDists = new float[rerankCandidates];
+            int[] reRankNeighbors = tlReRankNeighbors.get();
+            float[] reRankDists = tlReRankDists.get();
 
             if (inner instanceof IVFPQIndex ivf) {
-                ivf.searchWithParams(query, rerankCandidates, rerankNprobe, rerankCandidates, newCoarseNeighbors, newCoarseDists);
+                ivf.searchWithParams(query, rerankCandidates, rerankNprobe, rerankCandidates, reRankNeighbors, reRankDists);
             } else {
-                inner.search(query, rerankCandidates, newCoarseNeighbors, newCoarseDists);
+                inner.search(query, rerankCandidates, reRankNeighbors, reRankDists);
             }
 
             // Recompute exact distances for the expanded candidate set and merge
-            float[] exactDists2 = new float[newCoarseNeighbors.length];
-            computeExactDistancesForCandidates(query, newCoarseNeighbors, newCoarseNeighbors.length, exactDists2);
-            mergeExactIntoTopK(newCoarseNeighbors, newCoarseNeighbors.length, exactDists2, topK, neighbors, distances);
+            float[] reRankExactDists = tlReRankExactDists.get();
+            computeExactDistancesForCandidates(query, reRankNeighbors, rerankCandidates, reRankExactDists);
+            mergeExactIntoTopK(reRankNeighbors, rerankCandidates, reRankExactDists, topK, neighbors, distances);
 
             // Recompute fraud count after expanded rerank
             fraudCount = computeFraudCount(neighbors, topK);
@@ -106,8 +112,9 @@ public class ReRankingVectorIndex implements VectorIndex {
         return fraudCount;
     }
 
-    private void computeExactDistancesForCandidates(float[] query, int[] candidateIds, int candidateCount, float[] outExactDists) {
-        float[] vec = tlVec.get();
+    private void computeExactDistancesForCandidates(float[] query, int[] candidateIds,
+                                                    int candidateCount, float[] outExactDists) {
+        float[] vec = tlVec.get();        // reutiliza buffer da thread
         for (int i = 0; i < candidateCount; i++) {
             int id = candidateIds[i];
             if (id < 0) {
@@ -115,8 +122,7 @@ public class ReRankingVectorIndex implements VectorIndex {
                 continue;
             }
             try {
-                float[] readVec = readVector(id);
-                System.arraycopy(readVec, 0, vec, 0, DIMS);
+                readVector(id, vec);                      // lê direto para vec
                 outExactDists[i] = squaredDistance(query, vec);
             } catch (Exception e) {
                 outExactDists[i] = Float.MAX_VALUE;
@@ -143,10 +149,10 @@ public class ReRankingVectorIndex implements VectorIndex {
         return fraud;
     }
 
-    private float[] readVector(int id) throws Exception {
+    private void readVector(int id, float[] out)  throws Exception {
         long offset = vectorsOffset + (long) id * VECTOR_BYTES;
-        ByteBuffer buf = tlReadBuffer.get();  // reutiliza o buffer da thread
-        buf.order(ByteOrder.BIG_ENDIAN);
+        ByteBuffer buf = tlReadBuffer.get();
+        buf.clear();                      // prepara para nova leitura
         int bytesRead = 0;
         while (buf.hasRemaining()) {
             int n = vectorsChannel.read(buf, offset + bytesRead);
@@ -154,9 +160,7 @@ public class ReRankingVectorIndex implements VectorIndex {
             bytesRead += n;
         }
         buf.flip();
-        float[] result = new float[DIMS];
-        buf.asFloatBuffer().get(result);
-        return result;
+        buf.asFloatBuffer().get(out);     // escreve diretamente no array destino
     }
 
     private static void insertSorted(int[] neighbors, float[] distances, int k, int id, float dist) {

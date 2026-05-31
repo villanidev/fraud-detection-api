@@ -11,6 +11,9 @@ import java.util.concurrent.atomic.AtomicLong;
 @Service.Singleton
 public class FraudCheckService {
 
+    private static final ThreadLocal<int[]> NEIGHBORS_CACHE = ThreadLocal.withInitial(() -> new int[5]);
+    private static final ThreadLocal<float[]> DISTANCES_CACHE = ThreadLocal.withInitial(() -> new float[5]);
+
     private static final double SLOW_SEARCH_THRESHOLD_MS = 50.0;
 
     private final EmbeddingService embeddingService;
@@ -106,12 +109,10 @@ public class FraudCheckService {
         // 1 Embedding
         float[] emb = embeddingService.embed(txArray, vectorStore.getNormalization(), vectorStore.getMccRisk());
 
-        // 2 Busca K=5
-        int[] neighbors = new int[5];
-        float[] distances = new float[5];
-        int fraudCount = vectorStore.search(emb, 5, neighbors, distances);
+        // 2 Busca K=5 – usando buffers reutilizáveis
+        int fraudCount = vectorStore.search(emb, 5, NEIGHBORS_CACHE.get(), DISTANCES_CACHE.get());
 
-        // 3 Score ta cacheado
+        // 3 Resposta cacheada
         return DecisionResponse.get(fraudCount);
     }
 }

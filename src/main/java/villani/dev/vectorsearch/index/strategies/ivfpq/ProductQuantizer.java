@@ -22,32 +22,6 @@ public class ProductQuantizer {
 
     // helper: none (we store directly into flattened layout)
 
-    /**
-     * Trains codebooks from full 14D vectors.
-     * Extracts 2D sub-vectors per subspace and runs K-Means(K=256) on each.
-     */
-    public void train(float[][] vectors, long seed) {
-        float[][][] codebooks = new float[M][CODEBOOK_SIZE][SUB_D];
-        float[][] subVectors = new float[vectors.length][SUB_D];
-
-        for (int m = 0; m < M; m++) {
-            int offset = m * SUB_D;
-            for (int i = 0; i < vectors.length; i++) {
-                subVectors[i][0] = vectors[i][offset];
-                subVectors[i][1] = vectors[i][offset + 1];
-            }
-            codebooks[m] = kMeans.clusterSub(subVectors, CODEBOOK_SIZE, seed + m);
-        }
-        this.codebooksFlat = new float[M * CODEBOOK_SIZE * SUB_D];
-        for (int m = 0; m < M; m++) {
-            for (int c = 0; c < CODEBOOK_SIZE; c++) {
-                int base = (m * CODEBOOK_SIZE + c) * SUB_D;
-                this.codebooksFlat[base] = codebooks[m][c][0];
-                this.codebooksFlat[base + 1] = codebooks[m][c][1];
-            }
-        }
-    }
-
     /** Overload: train from flat vectors (row-major) with known N to avoid full matrix allocation externally. */
     public void train(float[] vectorsFlat, int N, long seed) {
         float[][][] codebooks = new float[M][CODEBOOK_SIZE][SUB_D];
@@ -71,20 +45,6 @@ public class ProductQuantizer {
         }
     }
 
-    /**
-     * Encodes a 14D vector to 7 bytes (one centroid index per subspace).
-     */
-    public short[] encode(float[] vec) {
-        short[] codes = new short[M];
-        float[] sub = new float[SUB_D];
-        for (int m = 0; m < M; m++) {
-            sub[0] = vec[m * SUB_D];
-            sub[1] = vec[m * SUB_D + 1];
-            codes[m] = (short) nearestSubFlat(sub, m);
-        }
-        return codes;
-    }
-
     /** Encode using flat array without allocating small temporary float[14] per vector. */
     public short[] encodeFlat(float[] flat, int idx) {
         short[] codes = new short[M];
@@ -97,17 +57,6 @@ public class ProductQuantizer {
             codes[m] = (short) nearestSubFlat(sub, m);
         }
         return codes;
-    }
-
-    /**
-     * Precomputes the ADC (Asymmetric Distance Computation) table for a query.
-     * Returns a flat table of length M * CODEBOOK_SIZE where entry for (m,c)
-     * is at index (m * CODEBOOK_SIZE + c). This layout improves cache locality.
-     */
-    public float[] buildAdcTableFlat(float[] query) {
-        float[] table = new float[M * CODEBOOK_SIZE];
-        buildAdcTableFlat(query, table);
-        return table;
     }
 
     /**

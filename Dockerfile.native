@@ -1,4 +1,4 @@
-# 1st stage, build the app
+# 1st stage, build the app usando o GraalVM Community Edition
 FROM ghcr.io/graalvm/graalvm-community:25.0.2 AS build
 
 WORKDIR /build
@@ -12,15 +12,7 @@ RUN mvn dependency:go-offline
 COPY src src
 RUN mvn package -Pnative-image -DskipTests
 
-# 2nd stage, build the runtime image
-#funciona: imagem final tem 65MB
-#FROM gcr.io/distroless/cc-debian12
-
-#funciona: imagem final tem 62MB
 FROM gcr.io/distroless/base-debian12
-
-#funciona mas imagem final tem 116MB
-#FROM debian:12-slim
 
 WORKDIR /app
 

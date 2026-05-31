@@ -21,7 +21,7 @@ services:
       resources:
         limits:
           cpus: "0.15"
-          memory: "50MB"
+          memory: "47MB"
 
   api1:
     image: ${IMAGE:-villanidev/rinha-de-backend-2026:latest}
@@ -46,7 +46,7 @@ services:
       resources:
         limits:
           cpus: "0.425"
-          memory: "150MB"
+          memory: "147MB"
 
   api2:
     image: ${IMAGE:-villanidev/rinha-de-backend-2026:latest}
@@ -71,7 +71,7 @@ services:
       resources:
         limits:
           cpus: "0.425"
-          memory: "150MB"
+          memory: "147MB"
 
 volumes:
   sockets:
@@ -79,4 +79,4 @@ volumes:
     driver_opts:
       type: tmpfs
       device: tmpfs
-      o: "size=10m"
+      o: "size=9m"
