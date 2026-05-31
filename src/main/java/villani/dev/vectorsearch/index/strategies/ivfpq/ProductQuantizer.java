@@ -136,13 +136,13 @@ public class ProductQuantizer {
      */
     public float adcDistanceFlat(float[] tableFlat, short[] codes, int offset) {
         // tableFlat is M * CODEBOOK_SIZE; access at m*CODEBOOK_SIZE + code
-        return tableFlat[0 * CODEBOOK_SIZE + (codes[offset]     & 0xFFFF)]
-             + tableFlat[1 * CODEBOOK_SIZE + (codes[offset + 1] & 0xFFFF)]
-             + tableFlat[2 * CODEBOOK_SIZE + (codes[offset + 2] & 0xFFFF)]
-             + tableFlat[3 * CODEBOOK_SIZE + (codes[offset + 3] & 0xFFFF)]
-             + tableFlat[4 * CODEBOOK_SIZE + (codes[offset + 4] & 0xFFFF)]
-             + tableFlat[5 * CODEBOOK_SIZE + (codes[offset + 5] & 0xFFFF)]
-             + tableFlat[6 * CODEBOOK_SIZE + (codes[offset + 6] & 0xFFFF)];
+        return tableFlat[0 * CODEBOOK_SIZE + codes[offset]]
+             + tableFlat[1 * CODEBOOK_SIZE + codes[offset + 1]]
+             + tableFlat[2 * CODEBOOK_SIZE + codes[offset + 2]]
+             + tableFlat[3 * CODEBOOK_SIZE + codes[offset + 3]]
+             + tableFlat[4 * CODEBOOK_SIZE + codes[offset + 4]]
+             + tableFlat[5 * CODEBOOK_SIZE + codes[offset + 5]]
+             + tableFlat[6 * CODEBOOK_SIZE + codes[offset + 6]];
     }
 
     /** Return the flattened codebooks for serialization or inspection. */

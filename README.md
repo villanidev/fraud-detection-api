@@ -12,11 +12,11 @@ Cada instância da API executa o mesmo pipeline a cada requisição:
 TransactionRequest
       │
       ▼
-  embed()          → transforma campos numéricos em vetor float[128]
+  embed()          → transforma campos numéricos em vetor
       │
       ▼
   search()         → IVF-PQ: busca aproximada nos 3M vetores de referência
-      │              (K=512 centroids, nprobe=16, candidates=50, rerank=true)
+      │              (K=2176 centroids, nprobe=6, candidates=10, rerank=true)
       ▼
   score()          → regras determinísticas sobre os vizinhos encontrados
       │
@@ -24,19 +24,19 @@ TransactionRequest
   DecisionResponse { approved, score }
 ```
 
-O índice (`data.bin`, ~170 MB) é gerado **uma vez** na sua máquina e baked na imagem Docker antes de publicar. Em produção a API nunca escreve em disco.
+O índice (`data.bin`, ~220 MB) é gerado **uma vez** na sua máquina e baked na imagem Docker antes de publicar. Em produção a API nunca escreve em disco.
 
 ---
 
 ## Stack
 
 | Camada        | Tecnologia                                                  |
-| ------------- | ----------------------------------------------------------- |
+| ------------- |-------------------------------------------------------------|
 | Linguagem     | Java 21                                                     |
 | Framework     | Helidon 4 SE (declarative DI, sem reflection em runtime)    |
-| Runtime       | GraalVM Native Image → binário nativo de ~62 MB             |
+| Runtime       | GraalVM CE 25 -> Native Image → binário nativo de ~89 MB    |
 | Imagem base   | `gcr.io/distroless/base-debian12` (sem shell, sem OS extra) |
-| Load balancer | nginx:alpine                                                |
+| Load balancer | haproxy:alpine                                              |
 | Algoritmo     | IVF-PQ (Inverted File + Product Quantization)               |
 
 ### Por que GraalVM Native Image?
@@ -46,7 +46,7 @@ O compilador GraalVM analisa todo o código em tempo de compilação (closed-wor
 - **Startup em < 20ms** (vs. ~800ms na JVM)
 - **Menor footprint de memória** — sem JIT, sem metaspace, sem warmup
 - **Sem JVM em runtime** — o binário roda diretamente sobre o kernel
-- Trade-off: build demora ~5 minutos e requer `mvn package -Pnative-image`
+- Trade-off: build demora ~2 a 5 minutos e requer `mvn package -Pnative-image`
 
 ---
 
@@ -60,7 +60,7 @@ O compilador GraalVM analisa todo o código em tempo de compilação (closed-wor
 
 ### 1. Gerar o índice (`data.bin`) — obrigatório antes de subir a API
 
-Isso leva ~6 minutos na primeira vez. Só precisa rodar uma vez (ou quando o dataset mudar).
+Isso leva ~1/2 horas na primeira vez. Só precisa rodar uma vez (ou quando o dataset mudar).
 
 ```bash
 mvn package -DskipTests
@@ -98,7 +98,7 @@ Loading references (data.bin) ...
 Fraud detection API started on port: 8080
 ```
 
-> Para instalar o GraalVM localmente: `sdk install java 21.0.x-graal` (SDKMAN) ou baixe em https://www.graalvm.org/downloads/
+> Para instalar o GraalVM localmente: `sdk install java 25.0.x-graal` (SDKMAN) ou baixe em https://www.graalvm.org/downloads/
 
 ---
 
@@ -168,7 +168,7 @@ Resposta:
 ```json
 {
   "approved": false,
-  "score": 0.87
+  "score": 0.8
 }
 ```
 
@@ -176,11 +176,10 @@ Para testar direto na API (sem nginx), use porta `8080` no lugar de `9999`. Úti
 
 ### `GET /ready`
 
-Health check — retorna 200 quando a API está pronta (índice carregado).
+Health check — retorna 204 quando a API está pronta (índice carregado).
 
 ```bash
 curl -s http://localhost:9999/ready
-# {"message":"ready"}
 ```
 
 ### Teste em lote com o arquivo de exemplo
@@ -198,23 +197,23 @@ done
 ## Limites de recursos (competição)
 
 | Serviço   | CPU     | Memória    |
-| --------- | ------- | ---------- |
-| nginx     | 0.2     | 40 MB      |
-| api1      | 0.4     | 155 MB     |
-| api2      | 0.4     | 155 MB     |
+|-----------|---------|------------|
+| haproxy   | 0.15    | 50 MB      |
+| api1      | 0.425   | 150 MB     |
+| api2      | 0.425   | 150 MB     |
 | **Total** | **1.0** | **350 MB** |
 
 ---
 
 ## Variáveis de ambiente
 
-| Variável                        | Padrão                                  | Descrição                                      |
-| ------------------------------- | --------------------------------------- | ---------------------------------------------- |
-| `REFERENCES_PATH`               | `src/main/resources/references.json.gz` | Dataset de referência                          |
-| `NORMALIZATION_PATH`            | `src/main/resources/normalization.json` | Parâmetros de normalização                     |
-| `MCC_RISK_PATH`                 | `src/main/resources/mcc_risk.json`      | Score de risco por MCC                         |
-| `DATA_BIN_PATH`                 | `data.bin`                              | Caminho do índice gerado                       |
-| `APP_VECTOR__SEARCH_INDEX`      | `ivf_pq`                                | Algoritmo de busca (`brute_force` ou `ivf_pq`) |
-| `APP_VECTOR__SEARCH_RERANK`     | `true`                                  | Rerank dos candidatos por distância exata      |
-| `APP_VECTOR__SEARCH_NPROBE`     | `16`                                    | Número de clusters inspecionados por query     |
-| `APP_VECTOR__SEARCH_CANDIDATES` | `50`                                    | Candidatos coarse antes do rerank              |
+| Variável                     | Padrão                                  | Descrição                                      |
+| ---------------------------- | --------------------------------------- | ---------------------------------------------- |
+| `REFERENCES_PATH`            | `src/main/resources/references.json.gz` | Dataset de referência                          |
+| `NORMALIZATION_PATH`         | `src/main/resources/normalization.json` | Parâmetros de normalização                     |
+| `MCC_RISK_PATH`              | `src/main/resources/mcc_risk.json`      | Score de risco por MCC                         |
+| `DATA_BIN_PATH`              | `data.bin`                              | Caminho do índice gerado                       |
+| `APP_VECTOR_SEARCH_INDEX`    | `ivf_pq`                                | Algoritmo de busca (`brute_force` ou `ivf_pq`) |
+| `APP_VECTOR_SEARCH_RERANK`   | `true`                                  | Rerank dos candidatos por distância exata      |
+| `APP_VECTOR_SEARCH_NPROBE`   | `16`                                    | Número de clusters inspecionados por query     |
+| `APP_VECTOR_SEARCH_CANDIDATES` | `50`                                    | Candidatos coarse antes do rerank              |
