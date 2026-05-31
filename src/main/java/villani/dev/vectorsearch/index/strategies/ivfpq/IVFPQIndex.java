@@ -31,7 +31,7 @@ public class IVFPQIndex implements VectorIndex {
     // centroidDist/centroidOrder are K=512 floats/ints; adcTable is M×256 floats.
     private final ThreadLocal<float[]>   tlCentroidDist;
     private final ThreadLocal<int[]>     tlCentroidOrder;
-    private final ThreadLocal<float[][]> tlAdcTable;
+    private final ThreadLocal<float[]> tlAdcTable;
 
     public IVFPQIndex(float[][] centroids,
                       int[][] idsByCluster,
@@ -56,7 +56,7 @@ public class IVFPQIndex implements VectorIndex {
 
         this.tlCentroidDist  = ThreadLocal.withInitial(() -> new float[K]);
         this.tlCentroidOrder = ThreadLocal.withInitial(() -> new int[K]);
-        this.tlAdcTable      = ThreadLocal.withInitial(() -> new float[ProductQuantizer.M][ProductQuantizer.CODEBOOK_SIZE]);
+        this.tlAdcTable      = ThreadLocal.withInitial(() -> new float[ProductQuantizer.M * ProductQuantizer.CODEBOOK_SIZE]);
     }
 
     @Override
@@ -79,8 +79,8 @@ public class IVFPQIndex implements VectorIndex {
         partialSort(centroidOrder, centroidDist, Math.min(nprobeParam, K));
 
         // --- Step 2: Precompute ADC table (reuse ThreadLocal scratch array) ---
-        float[][] adcTable = tlAdcTable.get();
-        pq.buildAdcTable(query, adcTable);
+        float[] adcTable = tlAdcTable.get();
+        pq.buildAdcTableFlat(query, adcTable);
 
         // --- Step 3: Scan every cluster ---
         Arrays.fill(distances, Float.MAX_VALUE);
@@ -93,7 +93,7 @@ public class IVFPQIndex implements VectorIndex {
             short[] codes = codesByCluster[clusterIdx]; // flat: codes for vector i at offset i*M
 
             for (int i = 0; i < ids.length; i++) {
-                float approxDist = pq.adcDistance(adcTable, codes, i * ProductQuantizer.M);
+                float approxDist = pq.adcDistanceFlat(adcTable, codes, i * ProductQuantizer.M);
                 if (approxDist < distances[Math.max(0, candidatesParam - 1)]) {
                     insertSorted(neighbors, distances, candidatesParam, ids[i], approxDist);
                 }

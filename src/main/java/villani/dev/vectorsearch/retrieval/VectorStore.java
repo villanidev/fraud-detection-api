@@ -105,11 +105,13 @@ public class VectorStore {
             for (int i = 0; i < MCC_TABLE_SIZE; i++) loadedMcc[i] = readFloat(channel, readBuf);
 
             // --- PQ codebooks ---
-            float[][][] codebooks = new float[ProductQuantizer.M][ProductQuantizer.CODEBOOK_SIZE][ProductQuantizer.SUB_D];
+            // Read PQ codebooks directly into flattened layout: (m * CODEBOOK_SIZE + c) * SUB_D + d
+            float[] codebooksFlat = new float[ProductQuantizer.M * ProductQuantizer.CODEBOOK_SIZE * ProductQuantizer.SUB_D];
             for (int m = 0; m < ProductQuantizer.M; m++) {
                 for (int c = 0; c < ProductQuantizer.CODEBOOK_SIZE; c++) {
-                    codebooks[m][c][0] = readFloat(channel, readBuf);
-                    codebooks[m][c][1] = readFloat(channel, readBuf);
+                    int base = (m * ProductQuantizer.CODEBOOK_SIZE + c) * ProductQuantizer.SUB_D;
+                    codebooksFlat[base] = readFloat(channel, readBuf);
+                    codebooksFlat[base + 1] = readFloat(channel, readBuf);
                 }
             }
 
@@ -167,7 +169,7 @@ public class VectorStore {
 
             // --- Monta ProductQuantizer e cria o índice ---
             ProductQuantizer pq = new ProductQuantizer(new KMeans());
-            pq.setCodebooks(codebooks);
+            pq.setCodebooksFlat(codebooksFlat);
             this.pq = pq;
             this.vectorCount = N;
 

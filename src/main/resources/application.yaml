@@ -11,12 +11,12 @@ server:
 app:
   vector-search:
     index: "ivf_pq" #"brute_force"
-    clusters: 2176
-    nprobe: 20
+    clusters: 3008
+    nprobe: 16
     candidates: 10
     rerank:
       enabled: true
-      nprobe: 32
+      nprobe: 16
       candidates: 10
   fraud:
     debug: false

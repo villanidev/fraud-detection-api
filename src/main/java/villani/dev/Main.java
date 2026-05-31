@@ -116,7 +116,7 @@ public class Main {
         DataReader.ReferenceData ref = dataReader.loadReferences(Path.of("src/main/resources/references.json.gz"));
         float[] vectorsFlat = ref.flat();
         int N = ref.count();
-        int[] kCandidates = IntStream.iterate(1024, n -> n <= 4096, n -> n + 64).toArray();
+        int[] kCandidates = IntStream.iterate(2048, n -> n <= 4096, n -> n + 64).toArray();
 
         System.out.printf("[evaluation] Running KMeans evaluation with cluster candidates (%s)...%n",
                 Arrays.toString(kCandidates));
@@ -125,7 +125,7 @@ public class Main {
             N,
             kCandidates,
             42L,                  // seed base
-            500_000,              // amostra fixa (use 0 para todos, mas será lento)
+            600_000,              // amostra fixa (use 0 para todos, mas será lento)
             3                     // trials por K para média
         );
 
@@ -148,7 +148,7 @@ public class Main {
         byte[] labels = ref.labels();
         int N = ref.count();
         // build sampleVectors (10k) by copying from flat array without materializing full matrix
-        int sampleSize = 10_000;
+        int sampleSize = 20_000;
         float[][] sampleVectors = new float[sampleSize][14];
         Random rnd = new Random(42L);
         // generate distinct indices
@@ -158,7 +158,7 @@ public class Main {
         }
 
         int[] nprobes = { 1, 2, 4, 8, 16, 32 };
-        int[] candidates = { 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 100 };
+        int[] candidates = { 10, 15, 20, 30, 40, 50 };
 
         int[][] groundTruth = RecallEvaluator.computeGroundTruth(sampleVectors, ref.flat(), 5);
 

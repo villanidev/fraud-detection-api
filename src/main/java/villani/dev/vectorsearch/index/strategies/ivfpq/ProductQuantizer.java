@@ -13,32 +13,21 @@ public class ProductQuantizer {
     public static final int CODEBOOK_SIZE = 2048;
 
     private final KMeans kMeans;
-    private float[][][] codebooks; // [M][CODEBOOK_SIZE][SUB_D] — kept for serialization + encode()
-    private float[][] cbFlat;      // [M][CODEBOOK_SIZE * SUB_D] — interleaved, contiguous, cache-friendly
+    // Flattened codebooks: layout [ (m * CODEBOOK_SIZE + c) * SUB_D + d ]
+    private float[] codebooksFlat; // length = M * CODEBOOK_SIZE * SUB_D
 
     public ProductQuantizer(KMeans kMeans) {
         this.kMeans = kMeans;
     }
 
-    /** Converts the 3D codebook array into a flat 2D layout for cache-friendly access. */
-    private static float[][] toFlat(float[][][] cb) {
-        int M = cb.length;
-        int C = cb[0].length;
-        int D = cb[0][0].length;
-        float[][] flat = new float[M][C * D];
-        for (int m = 0; m < M; m++)
-            for (int c = 0; c < C; c++)
-                for (int d = 0; d < D; d++)
-                    flat[m][c * D + d] = cb[m][c][d];
-        return flat;
-    }
+    // helper: none (we store directly into flattened layout)
 
     /**
      * Trains codebooks from full 14D vectors.
      * Extracts 2D sub-vectors per subspace and runs K-Means(K=256) on each.
      */
     public void train(float[][] vectors, long seed) {
-        codebooks = new float[M][CODEBOOK_SIZE][SUB_D];
+        float[][][] codebooks = new float[M][CODEBOOK_SIZE][SUB_D];
         float[][] subVectors = new float[vectors.length][SUB_D];
 
         for (int m = 0; m < M; m++) {
@@ -49,25 +38,37 @@ public class ProductQuantizer {
             }
             codebooks[m] = kMeans.clusterSub(subVectors, CODEBOOK_SIZE, seed + m);
         }
-        cbFlat = toFlat(codebooks);
+        this.codebooksFlat = new float[M * CODEBOOK_SIZE * SUB_D];
+        for (int m = 0; m < M; m++) {
+            for (int c = 0; c < CODEBOOK_SIZE; c++) {
+                int base = (m * CODEBOOK_SIZE + c) * SUB_D;
+                this.codebooksFlat[base] = codebooks[m][c][0];
+                this.codebooksFlat[base + 1] = codebooks[m][c][1];
+            }
+        }
     }
 
     /** Overload: train from flat vectors (row-major) with known N to avoid full matrix allocation externally. */
     public void train(float[] vectorsFlat, int N, long seed) {
-        codebooks = new float[M][CODEBOOK_SIZE][SUB_D];
+        float[][][] codebooks = new float[M][CODEBOOK_SIZE][SUB_D];
         for (int m = 0; m < M; m++) {
             int offset = m * SUB_D;
             float[][] subVectors = new float[N][SUB_D];
             for (int i = 0; i < N; i++) {
-                int base = i * (M * SUB_D); // but M*SUB_D == 14
-                // base should be i*14
-                base = i * (M * SUB_D);
+                int base = i * (M * SUB_D);
                 subVectors[i][0] = vectorsFlat[base + offset];
                 subVectors[i][1] = vectorsFlat[base + offset + 1];
             }
             codebooks[m] = kMeans.clusterSub(subVectors, CODEBOOK_SIZE, seed + m);
         }
-        cbFlat = toFlat(codebooks);
+        this.codebooksFlat = new float[M * CODEBOOK_SIZE * SUB_D];
+        for (int m = 0; m < M; m++) {
+            for (int c = 0; c < CODEBOOK_SIZE; c++) {
+                int base = (m * CODEBOOK_SIZE + c) * SUB_D;
+                this.codebooksFlat[base] = codebooks[m][c][0];
+                this.codebooksFlat[base + 1] = codebooks[m][c][1];
+            }
+        }
     }
 
     /**
@@ -79,7 +80,7 @@ public class ProductQuantizer {
         for (int m = 0; m < M; m++) {
             sub[0] = vec[m * SUB_D];
             sub[1] = vec[m * SUB_D + 1];
-            codes[m] = (short) kMeans.nearestSub(sub, codebooks[m], SUB_D);
+            codes[m] = (short) nearestSubFlat(sub, m);
         }
         return codes;
     }
@@ -93,38 +94,37 @@ public class ProductQuantizer {
             int off = base + m * SUB_D;
             sub[0] = flat[off];
             sub[1] = flat[off + 1];
-            codes[m] = (short) kMeans.nearestSub(sub, codebooks[m], SUB_D);
+            codes[m] = (short) nearestSubFlat(sub, m);
         }
         return codes;
     }
 
     /**
      * Precomputes the ADC (Asymmetric Distance Computation) table for a query.
-     * table[m][c] = squared distance from query subvector m to codebook[m][c].
-     * This is computed once per query and reused for all candidate vectors.
+     * Returns a flat table of length M * CODEBOOK_SIZE where entry for (m,c)
+     * is at index (m * CODEBOOK_SIZE + c). This layout improves cache locality.
      */
-    public float[][] buildAdcTable(float[] query) {
-        float[][] table = new float[M][CODEBOOK_SIZE];
-        buildAdcTable(query, table);
+    public float[] buildAdcTableFlat(float[] query) {
+        float[] table = new float[M * CODEBOOK_SIZE];
+        buildAdcTableFlat(query, table);
         return table;
     }
 
     /**
-     * In-place variant — writes into a pre-allocated table (avoids float[M][256] allocation per request).
-     * Uses the flat codebook layout [M][C*SUB_D] for cache-friendly sequential access
-     * (no pointer chasing through float[M][256][2]).
-     * Use with a ThreadLocal-cached table for zero-allocation hot path.
+     * In-place variant — writes into a pre-allocated flat table (avoids allocation per request).
+     * Table length must be at least M * CODEBOOK_SIZE.
      */
-    public void buildAdcTable(float[] query, float[][] table) {
+    public void buildAdcTableFlat(float[] query, float[] table) {
         for (int m = 0; m < M; m++) {
             float q0 = query[m * SUB_D];
             float q1 = query[m * SUB_D + 1];
-            float[] cb = cbFlat[m];
-            float[] row = table[m];
+            int base = (m * CODEBOOK_SIZE) * SUB_D;
+            int outBase = m * CODEBOOK_SIZE;
             for (int c = 0; c < CODEBOOK_SIZE; c++) {
-                float d0 = q0 - cb[c * 2];
-                float d1 = q1 - cb[c * 2 + 1];
-                row[c] = d0 * d0 + d1 * d1;
+                int cbIdx = base + c * SUB_D;
+                float d0 = q0 - codebooksFlat[cbIdx];
+                float d1 = q1 - codebooksFlat[cbIdx + 1];
+                table[outBase + c] = d0 * d0 + d1 * d1;
             }
         }
     }
@@ -134,27 +134,46 @@ public class ProductQuantizer {
      * using the precomputed ADC table. Offset-based variant for flat byte[] storage
      * (avoids 3M small byte[7] object allocations and their JVM header overhead).
      */
-    public float adcDistance(float[][] table, short[] codes, int offset) {
-        return table[0][codes[offset]     & 0xFFFF]
-             + table[1][codes[offset + 1] & 0xFFFF]
-             + table[2][codes[offset + 2] & 0xFFFF]
-             + table[3][codes[offset + 3] & 0xFFFF]
-             + table[4][codes[offset + 4] & 0xFFFF]
-             + table[5][codes[offset + 5] & 0xFFFF]
-             + table[6][codes[offset + 6] & 0xFFFF];
+    public float adcDistanceFlat(float[] tableFlat, short[] codes, int offset) {
+        // tableFlat is M * CODEBOOK_SIZE; access at m*CODEBOOK_SIZE + code
+        return tableFlat[0 * CODEBOOK_SIZE + codes[offset]]
+             + tableFlat[1 * CODEBOOK_SIZE + codes[offset + 1]]
+             + tableFlat[2 * CODEBOOK_SIZE + codes[offset + 2]]
+             + tableFlat[3 * CODEBOOK_SIZE + codes[offset + 3]]
+             + tableFlat[4 * CODEBOOK_SIZE + codes[offset + 4]]
+             + tableFlat[5 * CODEBOOK_SIZE + codes[offset + 5]]
+             + tableFlat[6 * CODEBOOK_SIZE + codes[offset + 6]];
     }
 
-    public float[][][] getCodebooks() {
-        return codebooks;
+    /** Return the flattened codebooks for serialization or inspection. */
+    public float[] getCodebooksFlat() {
+        return codebooksFlat;
     }
 
-    public void setCodebooks(float[][][] codebooks) {
-        this.codebooks = codebooks;
-        this.cbFlat = toFlat(codebooks);
+    public void setCodebooksFlat(float[] codebooksFlat) {
+        this.codebooksFlat = codebooksFlat;
     }
 
     /** Bytes needed to serialize codebooks: M * 256 * SUB_D * 4 bytes/float */
     public int serializedSize() {
         return M * CODEBOOK_SIZE * SUB_D * Float.BYTES;
+    }
+
+    /** Find nearest centroid index for subvector in subspace m using flat codebooks. */
+    private int nearestSubFlat(float[] sub, int m) {
+        int best = 0;
+        double bestDist = Double.MAX_VALUE;
+        int base = (m * CODEBOOK_SIZE) * SUB_D;
+        for (int c = 0; c < CODEBOOK_SIZE; c++) {
+            int idx = base + c * SUB_D;
+            double d0 = sub[0] - codebooksFlat[idx];
+            double d1 = sub[1] - codebooksFlat[idx + 1];
+            double dist = d0 * d0 + d1 * d1;
+            if (dist < bestDist) {
+                bestDist = dist;
+                best = c;
+            }
+        }
+        return best;
     }
 }

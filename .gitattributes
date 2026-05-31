@@ -1,0 +1,2 @@
+# Força o Git a sempre usar LF para scripts do shell (.sh)
+*.sh text eol=lf
