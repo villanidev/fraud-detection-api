@@ -3,7 +3,7 @@ services:
     image: haproxy:alpine
     cpuset: "0"
     volumes:
-      - ./loadbalancers/haproxy/haproxy-unix.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./haproxy-unix.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
       - sockets:/sockets
     ports:
       - "9999:9999"
