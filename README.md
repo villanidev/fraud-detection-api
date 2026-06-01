@@ -108,7 +108,7 @@ Fraud detection API started on port: 8080
 
 ```bash
 # 1. Compila e gera o binário nativo dentro do Docker
-docker build -f Dockerfile.native -t fraud-api-builder:latest .
+docker build -f Dockerfile.liberica.native.native -t fraud-api-builder:latest .
 
 # 2. Gera o data.bin localmente via container
 mkdir -p data-output
@@ -121,7 +121,7 @@ docker run --rm \
   fraud-api-builder:latest --preprocess
 
 # 3. Bake do data.bin na imagem final
-docker build -f Dockerfile.release \
+docker build -f Dockerfile.liberica.native.release \
   --build-arg BUILD_IMAGE=fraud-api-builder:latest \
   -t fraud-api-local:latest \
   .

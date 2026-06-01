@@ -1,231 +1,248 @@
 package villani.dev.fraud;
 
-import java.nio.charset.StandardCharsets;
-
 public class TransactionRequestBytes {
 
-    // Constante para mapear os índices exatos do seu array de retorno
-    private static final int IDX_AMOUNT = 0;
-    private static final int IDX_INSTALLMENTS = 1;
-    private static final int IDX_AVG_VS_AMOUNT = 2;
-    private static final int IDX_HOUR = 3;
-    private static final int IDX_DOW = 4;
-    private static final int IDX_MIN_SINCE_LAST = 5;
-    private static final int IDX_KM_FROM_LAST = 6;
-    private static final int IDX_KM_FROM_HOME = 7;
-    private static final int IDX_TX_COUNT_24H = 8;
-    private static final int IDX_IS_ONLINE = 9;
-    private static final int IDX_CARD_PRESENT = 10;
-    private static final int IDX_UNKNOWN_MERCHANT = 11;
-    private static final int IDX_MCC_CODE = 12;
-    private static final int IDX_MERCH_AVG = 13;
+    public static void toRequestArray(byte[] json, int len, float[] tx) {
+        // fills tx[0..13] following the same layout as TransactionRequest.toRequestArray
+        // zero-allocation, operates only on provided byte[] and primitive locals
 
-    public static float[] toRequestArray(String json) {
-        float[] txArray = new float[14];
+        int txStart = sectionStart(json, len, 0, "transaction");
+        float txAmount = extractFloat(json, len, txStart, "amount");
+        int txInstallments = (int) extractFloat(json, len, txStart, "installments");
+        long reqAtRange = extractQuotedRange(json, len, txStart, "requested_at");
+        int reqAtStart = (int)(reqAtRange >>> 32);
+        int reqAtEnd = (int)(reqAtRange & 0xffffffffL);
+        int txHour = tsHour(json, reqAtStart);
+        int txDow = tsDayOfWeek(json, reqAtStart);
+        long txEpoch = tsEpochSeconds(json, reqAtStart);
 
-        // Inicializa valores padrões para o caso de "last transaction" ser nulo
-        txArray[IDX_MIN_SINCE_LAST] = -1f;
-        txArray[IDX_KM_FROM_LAST] = -1f;
+        int custStart = sectionStart(json, len, 0, "customer");
+        float custAvgAmount = extractFloat(json, len, custStart, "avg_amount");
+        int custTxCount = (int) extractFloat(json, len, custStart, "tx_count_24h");
 
-        // Variáveis de controle para o cálculo de frações e chaves secundárias
-        float txAmount = 0f;
-        float custAvgAmount = 0f;
-        long txEpoch = 0L;
-        long lastEpoch = 0L;
+        int merchStart = sectionStart(json, len, 0, "merchant");
+        long merchIdRange = extractQuotedRange(json, len, merchStart, "id");
+        int merchIdS = (int)(merchIdRange >>> 32);
+        int merchIdE = (int)(merchIdRange & 0xffffffffL);
+        int mccCode = extractIntStr(json, len, merchStart, "mcc");
+        float merchAvg = extractFloat(json, len, merchStart, "avg_amount");
+
+        boolean unknownMerchant = !merchantIsKnown(json, len, custStart, "known_merchants", json, merchIdS, merchIdE);
+
+        int termStart = sectionStart(json, len, 0, "terminal");
+        boolean isOnline = extractBool(json, len, termStart, "is_online");
+        boolean cardPresent = extractBool(json, len, termStart, "card_present");
+        float kmFromHome = extractFloat(json, len, termStart, "km_from_home");
+
+        // last_transaction optional
+        int lastIdx = indexOfKey(json, len, 0, "last_transaction");
+        long lastEpoch = 0;
         float kmFromCurrent = 0f;
-        boolean temLastTransaction = false;
-
-        // Strings e IDs de controle para o match de "known_merchants"
-        String merchantId = "";
-
-        int length = json.length();
-        int i = 0;
-
-        // Parser Linear (Single-Pass)
-        while (i < length) {
-            char c = json.charAt(i);
-
-            if (c == '"') {
-                int startKey = ++i;
-                while (i < length && json.charAt(i) != '"') {
-                    i++;
-                }
-                int endKey = i;
-                i++; // Pula as aspas de fechamento
-
-                // Avança até o caractere de valor após os dois pontos ':'
-                while (i < length && (json.charAt(i) == ':' || json.charAt(i) == ' ' || json.charAt(i) == '\n' || json.charAt(i) == '\r')) {
-                    i++;
-                }
-
-                // Captura do valor baseado na chave encontrada
-                int keyLen = endKey - startKey;
-
-                // Otimização por hash rápido ou tamanho da chave para evitar alocação de Strings de chaves
-                if (json.regionMatches(startKey, "amount", 0, keyLen)) {
-                    // Como a chave "amount" aparece em múltiplos escopos, diferenciamos pelo contexto atual no JSON
-                    // Uma forma simples é verificar se já mapeamos o merchant (evita colisão)
-                    float val = parseNextFloat(json, i);
-                    if (txAmount == 0f) txAmount = val;
-                    else if (merchantId.isEmpty()) txAmount = val; // fallback de segurança
-                } else if (json.regionMatches(startKey, "installments", 0, keyLen)) {
-                    txArray[IDX_INSTALLMENTS] = parseNextInt(json, i);
-                } else if (json.regionMatches(startKey, "requested_at", 0, keyLen) || json.regionMatches(startKey, "requested at", 0, keyLen)) {
-                    int startStr = ++i;
-                    while (i < length && json.charAt(i) != '"') i++;
-                    int endStr = i;
-
-                    txArray[IDX_HOUR] = tsHour(json, startStr);
-                    txArray[IDX_DOW] = tsDayOfWeek(json, startStr);
-                    txEpoch = tsEpochSeconds(json, startStr);
-                } else if (json.regionMatches(startKey, "avg_amount", 0, keyLen) || json.regionMatches(startKey, "avg amount", 0, keyLen)) {
-                    float val = parseNextFloat(json, i);
-                    if (custAvgAmount == 0f) custAvgAmount = val; // O primeiro pertence ao customer
-                    else txArray[IDX_MERCH_AVG] = val; // O segundo ao merchant
-                } else if (json.regionMatches(startKey, "tx_count_24h", 0, keyLen) || json.regionMatches(startKey, "tx count 24h", 0, keyLen)) {
-                    txArray[IDX_TX_COUNT_24H] = parseNextInt(json, i);
-                } else if (json.regionMatches(startKey, "id", 0, keyLen)) {
-                    // Captura o ID do Merchant (geralmente começa com MERC)
-                    int startStr = ++i;
-                    while (i < length && json.charAt(i) != '"') i++;
-                    if (json.regionMatches(startStr, "MERC", 0, 4)) {
-                        merchantId = json.substring(startStr, i); // Única alocação inevitável para o contains posterior
-                    }
-                } else if (json.regionMatches(startKey, "mcc", 0, keyLen)) {
-                    // Mcc vem mapeado como string no JSON (ex: "5411")
-                    i++; // pula aspas
-                    int startMcc = i;
-                    while (i < length && json.charAt(i) != '"') i++;
-                    txArray[IDX_MCC_CODE] = digits(json, startMcc, i);
-                } else if (json.regionMatches(startKey, "is_online", 0, keyLen)
-                        || json.regionMatches(startKey, "is online", 0, keyLen)) {
-                    txArray[IDX_IS_ONLINE] = json.charAt(i) == 't' ? 1f : 0f;
-                } else if (json.regionMatches(startKey, "card_present", 0, keyLen)
-                        || json.regionMatches(startKey, "card present", 0, keyLen)) {
-                    txArray[IDX_CARD_PRESENT] = json.charAt(i) == 't' ? 1f : 0f;
-                } else if (json.regionMatches(startKey, "km_from_home", 0, keyLen)
-                        || json.regionMatches(startKey, "km from home", 0, keyLen)) {
-                    txArray[IDX_KM_FROM_HOME] = parseNextFloat(json, i);
-                } else if (json.regionMatches(startKey, "last_transaction", 0, keyLen)
-                        || json.regionMatches(startKey, "last transaction", 0, keyLen)) {
-                    if (json.charAt(i) != 'n') { // se não for 'null'
-                        temLastTransaction = true;
-                    }
-                } else if (json.regionMatches(startKey, "timestamp", 0, keyLen)) {
-                    int startStr = ++i;
-                    while (i < length && json.charAt(i) != '"') i++;
-                    lastEpoch = tsEpochSeconds(json, startStr);
-                } else if (json.regionMatches(startKey, "km_from_current", 0, keyLen)
-                        || json.regionMatches(startKey, "km from current", 0, keyLen)) {
-                    kmFromCurrent = parseNextFloat(json, i);
-                } else if (json.regionMatches(startKey, "known_merchants", 0, keyLen)
-                        || json.regionMatches(startKey, "known merchants", 0, keyLen)) {
-                    // Processa a lista de conhecidos inline de forma posicional
-                    while (i < length && json.charAt(i) != ']') {
-                        if (json.charAt(i) == '"') {
-                            int startM = ++i;
-                            while (i < length && json.charAt(i) != '"') i++;
-                            if (!merchantId.isEmpty() && json.regionMatches(startM, merchantId, 0, i - startM)) {
-                                txArray[IDX_UNKNOWN_MERCHANT] = 0f; // É conhecido
-                            }
-                        }
-                        i++;
-                    }
-                    // Se passou pela lista inteira e não achou, define como desconhecido (se já capturou o merchantId)
-                    if (txArray[IDX_UNKNOWN_MERCHANT] == 0f && !merchantId.isEmpty()) {
-                        // Lógica controlada pelo estado final fora do loop para precisão
-                    }
-                }
+        if (lastIdx >= 0) {
+            int colon = indexOf(json, len, lastIdx, ':');
+            colon++;
+            while (colon < len) {
+                byte b = json[colon];
+                if (b == ' ' || b == '\n' || b == '\r') { colon++; continue; }
+                break;
             }
-            i++;
+            if (colon < len && json[colon] == '{') {
+                long tsRange = extractQuotedRange(json, len, colon, "timestamp");
+                int tsStart = (int)(tsRange >>> 32);
+                lastEpoch = tsEpochSeconds(json, tsStart);
+                kmFromCurrent = extractFloat(json, len, colon, "km_from_current");
+            }
         }
 
-        // Pós-processamento dos cálculos estruturados
-        txArray[IDX_AMOUNT] = txAmount;
-        txArray[IDX_AVG_VS_AMOUNT] = custAvgAmount > 0 ? (txAmount / custAvgAmount) : 0f;
-
-        // Tratamento da flag de merchant desconhecido caso a lista passe antes do ID do merchant no payload
-        if (!merchantId.isEmpty() && !json.contains('"' + merchantId + '"')) {
-            txArray[IDX_UNKNOWN_MERCHANT] = 1f;
-        } else if (!merchantId.isEmpty() && json.indexOf('"' + merchantId + '"') == json.lastIndexOf('"' + merchantId + '"')) {
-            // Se o ID só aparece uma vez (que é na definição do merchant), significa que não estava na lista do customer
-            txArray[IDX_UNKNOWN_MERCHANT] = 1f;
+        // populate tx array
+        tx[0] = txAmount;
+        tx[1] = txInstallments;
+        tx[2] = custAvgAmount > 0f ? (txAmount / custAvgAmount) : 0f;
+        tx[3] = txHour;
+        tx[4] = txDow;
+        if (lastEpoch == 0L && kmFromCurrent == 0f) {
+            tx[5] = -1f;
+            tx[6] = -1f;
+        } else {
+            long minutes = Math.max(0L, (txEpoch - lastEpoch) / 60L);
+            tx[5] = (float) minutes;
+            tx[6] = kmFromCurrent;
         }
-
-        if (temLastTransaction && lastEpoch != 0L) {
-            txArray[IDX_MIN_SINCE_LAST] = Math.max(0, (txEpoch - lastEpoch) / 60L);
-            txArray[IDX_KM_FROM_LAST] = kmFromCurrent;
-        }
-
-        return txArray;
+        tx[7] = kmFromHome;
+        tx[8] = custTxCount;
+        tx[9] = isOnline ? 1f : 0f;
+        tx[10] = cardPresent ? 1f : 0f;
+        tx[11] = unknownMerchant ? 1f : 0f;
+        tx[12] = mccCode;
+        tx[13] = merchAvg;
     }
 
-    // --- Helpers de Parsing de alta performance sem alocação ---
+    // ---------- helpers (byte[] based, zero-allocation) -----------------
 
-    private static float parseNextFloat(String j, int start) {
+    private static int sectionStart(byte[] j, int len, int from, String key) {
+        int k = indexOfKey(j, len, from, key);
+        if (k < 0) return -1;
+        int colon = indexOf(j, len, k, ':');
+        return indexOf(j, len, colon, '{');
+    }
+
+    private static int indexOfKey(byte[] j, int len, int from, String key) {
+        // find '"' + key + '"' starting at from
+        int k = from;
+        int keyLen = key.length();
+        outer: for (; k < len - keyLen - 2; k++) {
+            if (j[k] != '"') continue;
+            int p = k + 1;
+            for (int i = 0; i < keyLen; i++) {
+                if (p + i >= len) return -1;
+                if (j[p + i] != (byte) key.charAt(i)) continue outer;
+            }
+            int q = p + keyLen;
+            if (q < len && j[q] == '"') return k;
+        }
+        return -1;
+    }
+
+    private static int indexOf(byte[] j, int len, int from, char c) {
+        for (int i = Math.max(0, from); i < len; i++) if (j[i] == (byte) c) return i;
+        return -1;
+    }
+
+    private static long extractQuotedRange(byte[] j, int len, int from, String key) {
+        int k = indexOfKey(j, len, from, key);
+        if (k < 0) return 0L;
+        int colon = indexOf(j, len, k, ':');
+        int q1 = indexOf(j, len, colon + 1, '"');
+        int q2 = indexOf(j, len, q1 + 1, '"');
+        return (((long)(q1 + 1)) << 32) | (q2 & 0xffffffffL);
+    }
+
+    private static float extractFloat(byte[] j, int len, int from, String key) {
+        int k = indexOfKey(j, len, from, key);
+        int start = indexOf(j, len, k, ':');
+        start++;
+        while (start < len) { byte b = j[start]; if (b == ' ') { start++; continue; } break; }
         int end = start;
-        while (end < j.length() && j.charAt(end) != ',' && j.charAt(end) != '}' && j.charAt(end) != '\n' && j.charAt(end) != '\r') {
+        while (end < len) {
+            byte c = j[end];
+            if (c == ',' || c == '}' || c == '\n' || c == '\r') break;
             end++;
         }
-        return Float.parseFloat(j.substring(start, end).trim());
+        return parseFloat(j, start, end);
     }
 
-    private static int parseNextInt(String j, int start) {
-        return (int) parseNextFloat(j, start);
+    private static int extractIntStr(byte[] j, int len, int from, String key) {
+        int k = indexOfKey(j, len, from, key);
+        int q1 = indexOf(j, len, indexOf(j, len, k, ':') + 1, '"') + 1;
+        int v = 0;
+        for (int p = q1; p < len; p++) {
+            byte c = j[p];
+            if (c == '"') break;
+            v = v * 10 + (c - '0');
+        }
+        return v;
     }
 
-    private static int tsHour(String s, int offset) {
-        return (s.charAt(offset + 11) - '0') * 10 + (s.charAt(offset + 12) - '0');
+    private static boolean extractBool(byte[] j, int len, int from, String key) {
+        int k = indexOfKey(j, len, from, key);
+        int start = indexOf(j, len, k, ':') + 1;
+        while (start < len && j[start] == ' ') start++;
+        return j[start] == 't';
     }
 
-    private static int tsDayOfWeek(String s, int offset) {
-        int y = digits(s, offset, offset + 4);
-        int m = digits(s, offset + 5, offset + 7);
-        int d = digits(s, offset + 8, offset + 10);
+    private static boolean merchantIsKnown(byte[] j, int len, int from, String key, byte[] whole, int targetS, int targetE) {
+        int k = indexOfKey(j, len, from, key);
+        if (k < 0) return false;
+        int bracket = indexOf(j, len, k, '[');
+        int end = indexOf(j, len, bracket, ']');
+        int pos = bracket + 1;
+        int tLen = targetE - targetS;
+        while (pos < end) {
+            int q1 = indexOf(whole, len, pos, '"');
+            if (q1 < 0 || q1 >= end) break;
+            int q2 = indexOf(whole, len, q1 + 1, '"');
+            int candidateLen = q2 - q1 - 1;
+            if (candidateLen == tLen) {
+                boolean eq = true;
+                for (int i = 0; i < tLen; i++) if (whole[q1 + 1 + i] != whole[targetS + i]) { eq = false; break; }
+                if (eq) return true;
+            }
+            pos = q2 + 1;
+        }
+        return false;
+    }
+
+    // --------- numeric parsing from bytes ---------------------------------
+
+    private static float parseFloat(byte[] b, int s, int e) {
+        // parse optional sign, integer part, optional fraction
+        boolean neg = false;
+        int i = s;
+        if (i < e && b[i] == '-') { neg = true; i++; }
+        long intPart = 0;
+        while (i < e) {
+            byte c = b[i];
+            if (c >= '0' && c <= '9') { intPart = intPart * 10 + (c - '0'); i++; continue; }
+            break;
+        }
+        double value = intPart;
+        if (i < e && b[i] == '.') {
+            i++;
+            double place = 0.1;
+            while (i < e) {
+                byte c = b[i];
+                if (c >= '0' && c <= '9') { value += (c - '0') * place; place *= 0.1; i++; continue; }
+                break;
+            }
+        }
+        return (float) (neg ? -value : value);
+    }
+
+    // timestamp helpers operate directly on bytes at given start (expects format 2026-03-11T18:45:53Z)
+    private static int tsHour(byte[] j, int start) {
+        return (j[start + 11] - '0') * 10 + (j[start + 12] - '0');
+    }
+
+    private static int tsDayOfWeek(byte[] j, int start) {
+        int y = digits(j, start + 0, start + 4);
+        int m = digits(j, start + 5, start + 7);
+        int d = digits(j, start + 8, start + 10);
         final int[] t = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
         if (m < 3) y--;
         int dow = (y + y / 4 - y / 100 + y / 400 + t[m - 1] + d) % 7;
-
         return switch (dow) {
-            case 1 -> 0; // Seg
-            case 2 -> 1; // Ter
-            case 3 -> 2; // Qua
-            case 4 -> 3; // Qui
-            case 5 -> 4; // Sex
-            case 6 -> 5; // Sáb
-            case 0 -> 6; // Dom
+            case 1 -> 0;
+            case 2 -> 1;
+            case 3 -> 2;
+            case 4 -> 3;
+            case 5 -> 4;
+            case 6 -> 5;
+            case 0 -> 6;
             default -> 0;
         };
     }
 
-    static long tsEpochSeconds(String s, int offset) {
-        int y = digits(s, offset, offset + 4);
-        int m = digits(s, offset + 5, offset + 7);
-        int d = digits(s, offset + 8, offset + 10);
-        int h = digits(s, offset + 11, offset + 13);
-        int min = digits(s, offset + 14, offset + 16);
-        int sec = digits(s, offset + 17, offset + 19);
-        if (m <= 2) {
-            y--;
-            m += 9;
-        } else {
-            m -= 3;
-        }
-
+    private static long tsEpochSeconds(byte[] j, int start) {
+        int y = digits(j, start + 0, start + 4);
+        int m = digits(j, start + 5, start + 7);
+        int d = digits(j, start + 8, start + 10);
+        int h = digits(j, start + 11, start + 13);
+        int min = digits(j, start + 14, start + 16);
+        int sec = digits(j, start + 17, start + 19);
+        if (m <= 2) { y--; m += 9; } else { m -= 3; }
         long era = (y >= 0 ? y : y - 399) / 400;
-        int yoe = (int) (y - era * 400);
+        int yoe = (int)(y - era * 400);
         int doy = (153 * m + 2) / 5 + d - 1;
         int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
         long days = era * 146097L + doe - 719468L;
         return days * 86400L + h * 3600L + min * 60L + sec;
     }
 
-    private static int digits(String s, int start, int end) {
+    private static int digits(byte[] j, int s, int e) {
         int v = 0;
-        for (int i = start; i < end; i++) {
-            v = v * 10 + (s.charAt(i) - '0');
-        }
+        for (int i = s; i < e; i++) v = v * 10 + (j[i] - '0');
         return v;
     }
 }
+
 

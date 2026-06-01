@@ -11,6 +11,8 @@ import io.helidon.webserver.http.RestServer;
 @Service.Singleton
 public class FraudCheckEndpoint {
 
+    private static final ThreadLocal<float[]> ARRAY_CACHE = ThreadLocal.withInitial(() -> new float[14]);
+
     private final FraudCheckService fraudCheckService;
 
     @Service.Inject
@@ -18,10 +20,18 @@ public class FraudCheckEndpoint {
         this.fraudCheckService = fraudCheckService;
     }
 
-    @Http.POST
+    /*@Http.POST
     @Http.Produces(MediaTypes.APPLICATION_JSON_VALUE)
     public byte[] checkScore(@Http.Entity String body) {
         float[] txArray = TransactionRequest.toRequestArray(body);
+        return fraudCheckService.checkScore(txArray);
+    }*/
+
+    @Http.POST
+    @Http.Produces(MediaTypes.APPLICATION_JSON_VALUE)
+    public byte[] checkScore(@Http.Entity byte[] body) {
+        float[] txArray = ARRAY_CACHE.get();
+        TransactionRequestBytes.toRequestArray(body, body.length, txArray);
         return fraudCheckService.checkScore(txArray);
     }
 }
