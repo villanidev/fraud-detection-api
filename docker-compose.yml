@@ -22,6 +22,7 @@ services:
 
   api1:
     image: villanidev/rinha-de-backend-2026:20260601031832
+    pull_policy: always
     cpuset: "1"
     environment:
       SERVER_SOCKET_PATH: /sockets/api1.sock
@@ -44,6 +45,7 @@ services:
 
   api2:
     image: villanidev/rinha-de-backend-2026:20260601031832
+    pull_policy: always
     cpuset: "2"
     environment:
       SERVER_SOCKET_PATH: /sockets/api2.sock
