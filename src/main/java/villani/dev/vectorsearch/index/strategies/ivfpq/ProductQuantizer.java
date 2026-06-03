@@ -1,5 +1,7 @@
 package villani.dev.vectorsearch.index.strategies.ivfpq;
 
+import java.util.Arrays;
+
 /**
  * Compresses each 14D vector into M=7 bytes using Product Quantization.
  * Each byte is the centroid index within a 2D subspace (256 centroids per subspace).
@@ -8,8 +10,11 @@ package villani.dev.vectorsearch.index.strategies.ivfpq;
  */
 public class ProductQuantizer {
 
+    private static final int TX_COUNT_24H_DIM = 8;
+    private static final int IS_ONLINE_DIM = 9;
     private static final int CARD_PRESENT_DIM = 10;
     private static final int UNKNOWN_MERCHANT_DIM = 11;
+    private static final int MIXED_BINARY_EFFECTIVE_CODES_PER_BRANCH = 256;
 
     public static final int M = 7;       // subquantizers (one per subspace)
     public static final int SUB_D = 2;   // dimensions per subspace (14/7)
@@ -31,6 +36,8 @@ public class ProductQuantizer {
         for (int m = 0; m < M; m++) {
             float[][] codebook = shouldUseExactDiscreteCodebook(m)
                     ? buildExactDiscreteCodebook(m)
+                    : shouldUseBinarySplitCodebook(m)
+                    ? buildBinarySplitCodebook(vectorsFlat, N, m)
                     : kMeans.clusterSubFlat(vectorsFlat, N, m * SUB_D, CODEBOOK_SIZE, seed + m);
             for (int c = 0; c < CODEBOOK_SIZE; c++) {
                 int base = (m * CODEBOOK_SIZE + c) * SUB_D;
@@ -44,6 +51,12 @@ public class ProductQuantizer {
         int dim0 = subspace * SUB_D;
         int dim1 = dim0 + 1;
         return dim0 == CARD_PRESENT_DIM && dim1 == UNKNOWN_MERCHANT_DIM;
+    }
+
+    private boolean shouldUseBinarySplitCodebook(int subspace) {
+        int dim0 = subspace * SUB_D;
+        int dim1 = dim0 + 1;
+        return dim0 == TX_COUNT_24H_DIM && dim1 == IS_ONLINE_DIM;
     }
 
     private float[][] buildExactDiscreteCodebook(int subspace) {
@@ -62,6 +75,57 @@ public class ProductQuantizer {
             codebook[c][1] = codebook[c & 3][1];
         }
         return codebook;
+    }
+
+    private float[][] buildBinarySplitCodebook(float[] vectorsFlat, int vectorCount, int subspace) {
+        System.out.printf("[ProductQuantizer] subspace=%d uses binary-split codebook; skipping KMeans.%n", subspace);
+        float[][] codebook = new float[CODEBOOK_SIZE][SUB_D];
+        int subspaceOffset = subspace * SUB_D;
+        int branchSlots = CODEBOOK_SIZE / 2;
+
+        fillBinaryBranch(vectorsFlat, vectorCount, subspaceOffset, 0f, 0, branchSlots, codebook);
+        fillBinaryBranch(vectorsFlat, vectorCount, subspaceOffset, 1f, branchSlots, branchSlots, codebook);
+        return codebook;
+    }
+
+    private void fillBinaryBranch(float[] vectorsFlat,
+                                  int vectorCount,
+                                  int subspaceOffset,
+                                  float binaryValue,
+                                  int codeStart,
+                                  int codeCount,
+                                  float[][] codebook) {
+        float[] values = new float[vectorCount];
+        int count = 0;
+        for (int i = 0; i < vectorCount; i++) {
+            int base = i * (M * SUB_D) + subspaceOffset;
+            if (vectorsFlat[base + 1] == binaryValue) {
+                values[count++] = vectorsFlat[base];
+            }
+        }
+
+        if (count == 0) {
+            for (int i = 0; i < codeCount; i++) {
+                codebook[codeStart + i][0] = 0f;
+                codebook[codeStart + i][1] = binaryValue;
+            }
+            return;
+        }
+
+        Arrays.sort(values, 0, count);
+        int effectiveCodes = Math.min(MIXED_BINARY_EFFECTIVE_CODES_PER_BRANCH, Math.min(count, codeCount));
+        for (int i = 0; i < codeCount; i++) {
+            int quantileIndex = i % effectiveCodes;
+            int sampleIndex = quantileSampleIndex(quantileIndex, effectiveCodes, count);
+            codebook[codeStart + i][0] = values[sampleIndex];
+            codebook[codeStart + i][1] = binaryValue;
+        }
+    }
+
+    private static int quantileSampleIndex(int bucketIndex, int bucketCount, int sampleCount) {
+        long numerator = (long) (2 * bucketIndex + 1) * sampleCount;
+        int index = (int) (numerator / (2L * bucketCount));
+        return Math.min(sampleCount - 1, index);
     }
 
     /** Encode using flat array without allocating small temporary float[14] per vector. */

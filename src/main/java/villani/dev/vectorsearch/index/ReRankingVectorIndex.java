@@ -31,7 +31,7 @@ public class ReRankingVectorIndex implements VectorIndex {
     private final FileChannel vectorsChannel;  // mantido aberto, thread‑safe para read(pos)
     private final long vectorsOffset;
     private final int coarseCandidates;
-    private int rerankNprobe;
+    private final int rerankNprobe;
     private final int rerankCandidates;
 
     // Scratch buffers usados no hot path da busca (apenas cálculo, sem I/O)
@@ -51,23 +51,24 @@ public class ReRankingVectorIndex implements VectorIndex {
     public ReRankingVectorIndex(VectorIndex inner,
                                 FileChannel vectorsChannel,
                                 long vectorsOffset,
+                                int coarseNprobe,
                                 int coarseCandidates,
                                 int vectorCount,
                                 int rerankNprobe,
                                 int rerankCandidates) {
-        System.out.println("Initializing ReRankingVectorIndex with rerankNprobe=" + rerankNprobe + " and rerankCandidates=" + rerankCandidates);
         this.inner = inner;
         this.vectorsChannel = vectorsChannel;
         this.vectorsOffset = vectorsOffset;
         this.coarseCandidates = Math.max(coarseCandidates, rerankCandidates);
-        this.rerankNprobe = rerankNprobe;
-        this.rerankCandidates = rerankCandidates;
+        this.rerankNprobe = Math.max(coarseNprobe, rerankNprobe);
+        this.rerankCandidates = Math.max(coarseCandidates, rerankCandidates);
+        System.out.println("Initializing ReRankingVectorIndex with rerankNprobe=" + this.rerankNprobe + " and rerankCandidates=" + this.rerankCandidates);
         this.tlCoarseNeighbors = ThreadLocal.withInitial(() -> new int[this.coarseCandidates]);
         this.tlCoarseDists     = ThreadLocal.withInitial(() -> new float[this.coarseCandidates]);
         this.tlVec             = ThreadLocal.withInitial(() -> new float[DIMS]);
-        this.tlReRankNeighbors   = ThreadLocal.withInitial(() -> new int[rerankCandidates]);
-        this.tlReRankDists       = ThreadLocal.withInitial(() -> new float[rerankCandidates]);
-        this.tlReRankExactDists  = ThreadLocal.withInitial(() -> new float[rerankCandidates]);
+        this.tlReRankNeighbors   = ThreadLocal.withInitial(() -> new int[this.rerankCandidates]);
+        this.tlReRankDists       = ThreadLocal.withInitial(() -> new float[this.rerankCandidates]);
+        this.tlReRankExactDists  = ThreadLocal.withInitial(() -> new float[this.rerankCandidates]);
     }
 
     @Override

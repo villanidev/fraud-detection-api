@@ -126,7 +126,7 @@ public class VectorIndexFactory {
         };
 
         if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
-            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, candidates, vectorCount, rerankNprobe, rerankCandidates);
+            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, nprobe, candidates, vectorCount, rerankNprobe, rerankCandidates);
         }
 
         return base;
@@ -197,7 +197,7 @@ public class VectorIndexFactory {
         };
 
         if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
-            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, candidates, vectorCount, rerankNprobe, rerankCandidates);
+            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, nprobe, candidates, vectorCount, rerankNprobe, rerankCandidates);
         }
 
         return base;
