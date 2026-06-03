@@ -30,15 +30,13 @@ public class ReRankingVectorIndex implements VectorIndex {
     private final VectorIndex inner;
     private final FileChannel vectorsChannel;  // mantido aberto, thread‑safe para read(pos)
     private final long vectorsOffset;
-    private final int vectorCount;
-    private final int candidates;
+    private final int coarseCandidates;
     private int rerankNprobe;
     private final int rerankCandidates;
 
     // Scratch buffers usados no hot path da busca (apenas cálculo, sem I/O)
     private final ThreadLocal<int[]>   tlCoarseNeighbors;
     private final ThreadLocal<float[]> tlCoarseDists;
-    private final ThreadLocal<float[]> tlExactDists;
     private final ThreadLocal<float[]> tlVec; // buffer para vetor lido
     //buffer off-heap reutilizável por thread (56 bytes)
     private final ThreadLocal<ByteBuffer> tlReadBuffer = ThreadLocal.withInitial(() -> {
@@ -53,6 +51,7 @@ public class ReRankingVectorIndex implements VectorIndex {
     public ReRankingVectorIndex(VectorIndex inner,
                                 FileChannel vectorsChannel,
                                 long vectorsOffset,
+                                int coarseCandidates,
                                 int vectorCount,
                                 int rerankNprobe,
                                 int rerankCandidates) {
@@ -60,13 +59,11 @@ public class ReRankingVectorIndex implements VectorIndex {
         this.inner = inner;
         this.vectorsChannel = vectorsChannel;
         this.vectorsOffset = vectorsOffset;
-        this.vectorCount = vectorCount;
-        this.candidates = rerankCandidates; // keep per-instance candidate scratch sized to rerank window
+        this.coarseCandidates = Math.max(coarseCandidates, rerankCandidates);
         this.rerankNprobe = rerankNprobe;
         this.rerankCandidates = rerankCandidates;
-        this.tlCoarseNeighbors = ThreadLocal.withInitial(() -> new int[candidates]);
-        this.tlCoarseDists     = ThreadLocal.withInitial(() -> new float[candidates]);
-        this.tlExactDists      = ThreadLocal.withInitial(() -> new float[candidates]);
+        this.tlCoarseNeighbors = ThreadLocal.withInitial(() -> new int[this.coarseCandidates]);
+        this.tlCoarseDists     = ThreadLocal.withInitial(() -> new float[this.coarseCandidates]);
         this.tlVec             = ThreadLocal.withInitial(() -> new float[DIMS]);
         this.tlReRankNeighbors   = ThreadLocal.withInitial(() -> new int[rerankCandidates]);
         this.tlReRankDists       = ThreadLocal.withInitial(() -> new float[rerankCandidates]);
@@ -78,19 +75,17 @@ public class ReRankingVectorIndex implements VectorIndex {
         int[] coarseNeighbors = tlCoarseNeighbors.get();
         float[] coarseDists   = tlCoarseDists.get();
 
-        int firstCheck = inner.search(query, candidates, coarseNeighbors, coarseDists);
-
-        if (firstCheck == 0) return 0;
-
-        float[] exactDists = tlExactDists.get();
-        computeExactDistancesForCandidates(query, coarseNeighbors, candidates, exactDists);
-        mergeExactIntoTopK(coarseNeighbors, candidates, exactDists, topK, neighbors, distances);
-
+        inner.search(query, coarseCandidates, coarseNeighbors, coarseDists);
         int fraudCount = computeFraudCount(coarseNeighbors, topK);
 
-        if (fraudCount == 2 || fraudCount == 3) {
-            //System.out.println("Grey zone, count: " + fraudCount);
-            // Re-run coarse search with larger probe/candidate settings
+        if (fraudCount != 2 && fraudCount != 3) {
+            copyApproximateTopK(coarseNeighbors, coarseDists, topK, neighbors, distances);
+            return fraudCount;
+        }
+
+        // Re-run coarse search with larger probe/candidate settings only for grey-area queries.
+        // This is the expensive path that helps clean borderline 2/5 and 3/5 decisions.
+        try {
             int[] reRankNeighbors = tlReRankNeighbors.get();
             float[] reRankDists = tlReRankDists.get();
 
@@ -105,11 +100,11 @@ public class ReRankingVectorIndex implements VectorIndex {
             computeExactDistancesForCandidates(query, reRankNeighbors, rerankCandidates, reRankExactDists);
             mergeExactIntoTopK(reRankNeighbors, rerankCandidates, reRankExactDists, topK, neighbors, distances);
 
-            // Recompute fraud count after expanded rerank
-            fraudCount = computeFraudCount(neighbors, topK);
+            return computeFraudCount(neighbors, topK);
+        } catch (Exception ignored) {
+            copyApproximateTopK(coarseNeighbors, coarseDists, topK, neighbors, distances);
+            return fraudCount;
         }
-
-        return fraudCount;
     }
 
     private void computeExactDistancesForCandidates(float[] query, int[] candidateIds,
@@ -147,6 +142,14 @@ public class ReRankingVectorIndex implements VectorIndex {
             if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraud++;
         }
         return fraud;
+    }
+
+    private void copyApproximateTopK(int[] sourceNeighbors, float[] sourceDistances, int topK, int[] targetNeighbors, float[] targetDistances) {
+        Arrays.fill(targetNeighbors, -1);
+        Arrays.fill(targetDistances, Float.MAX_VALUE);
+        int copyCount = Math.min(topK, Math.min(sourceNeighbors.length, targetNeighbors.length));
+        System.arraycopy(sourceNeighbors, 0, targetNeighbors, 0, copyCount);
+        System.arraycopy(sourceDistances, 0, targetDistances, 0, copyCount);
     }
 
     private void readVector(int id, float[] out)  throws Exception {

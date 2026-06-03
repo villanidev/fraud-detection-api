@@ -8,6 +8,9 @@ package villani.dev.vectorsearch.index.strategies.ivfpq;
  */
 public class ProductQuantizer {
 
+    private static final int CARD_PRESENT_DIM = 10;
+    private static final int UNKNOWN_MERCHANT_DIM = 11;
+
     public static final int M = 7;       // subquantizers (one per subspace)
     public static final int SUB_D = 2;   // dimensions per subspace (14/7)
     public static final int CODEBOOK_SIZE = 2048;
@@ -24,39 +27,56 @@ public class ProductQuantizer {
 
     /** Overload: train from flat vectors (row-major) with known N to avoid full matrix allocation externally. */
     public void train(float[] vectorsFlat, int N, long seed) {
-        float[][][] codebooks = new float[M][CODEBOOK_SIZE][SUB_D];
-        for (int m = 0; m < M; m++) {
-            int offset = m * SUB_D;
-            float[][] subVectors = new float[N][SUB_D];
-            for (int i = 0; i < N; i++) {
-                int base = i * (M * SUB_D);
-                subVectors[i][0] = vectorsFlat[base + offset];
-                subVectors[i][1] = vectorsFlat[base + offset + 1];
-            }
-            codebooks[m] = kMeans.clusterSub(subVectors, CODEBOOK_SIZE, seed + m);
-        }
         this.codebooksFlat = new float[M * CODEBOOK_SIZE * SUB_D];
         for (int m = 0; m < M; m++) {
+            float[][] codebook = shouldUseExactDiscreteCodebook(m)
+                    ? buildExactDiscreteCodebook(m)
+                    : kMeans.clusterSubFlat(vectorsFlat, N, m * SUB_D, CODEBOOK_SIZE, seed + m);
             for (int c = 0; c < CODEBOOK_SIZE; c++) {
                 int base = (m * CODEBOOK_SIZE + c) * SUB_D;
-                this.codebooksFlat[base] = codebooks[m][c][0];
-                this.codebooksFlat[base + 1] = codebooks[m][c][1];
+                this.codebooksFlat[base] = codebook[c][0];
+                this.codebooksFlat[base + 1] = codebook[c][1];
             }
         }
+    }
+
+    private boolean shouldUseExactDiscreteCodebook(int subspace) {
+        int dim0 = subspace * SUB_D;
+        int dim1 = dim0 + 1;
+        return dim0 == CARD_PRESENT_DIM && dim1 == UNKNOWN_MERCHANT_DIM;
+    }
+
+    private float[][] buildExactDiscreteCodebook(int subspace) {
+        System.out.printf("[ProductQuantizer] subspace=%d uses exact discrete codebook; skipping KMeans.%n", subspace);
+        float[][] codebook = new float[CODEBOOK_SIZE][SUB_D];
+        codebook[0][0] = 0f;
+        codebook[0][1] = 0f;
+        codebook[1][0] = 0f;
+        codebook[1][1] = 1f;
+        codebook[2][0] = 1f;
+        codebook[2][1] = 0f;
+        codebook[3][0] = 1f;
+        codebook[3][1] = 1f;
+        for (int c = 4; c < CODEBOOK_SIZE; c++) {
+            codebook[c][0] = codebook[c & 3][0];
+            codebook[c][1] = codebook[c & 3][1];
+        }
+        return codebook;
     }
 
     /** Encode using flat array without allocating small temporary float[14] per vector. */
     public short[] encodeFlat(float[] flat, int idx) {
         short[] codes = new short[M];
-        float[] sub = new float[SUB_D];
+        encodeFlatInto(flat, idx, codes, 0);
+        return codes;
+    }
+
+    public void encodeFlatInto(float[] flat, int idx, short[] target, int targetOffset) {
         int base = idx * (M * SUB_D); // 14
         for (int m = 0; m < M; m++) {
             int off = base + m * SUB_D;
-            sub[0] = flat[off];
-            sub[1] = flat[off + 1];
-            codes[m] = (short) nearestSubFlat(sub, m);
+            target[targetOffset + m] = (short) nearestSubFlat(flat[off], flat[off + 1], m);
         }
-        return codes;
     }
 
     /**
@@ -109,14 +129,14 @@ public class ProductQuantizer {
     }
 
     /** Find nearest centroid index for subvector in subspace m using flat codebooks. */
-    private int nearestSubFlat(float[] sub, int m) {
+    private int nearestSubFlat(float v0, float v1, int m) {
         int best = 0;
         double bestDist = Double.MAX_VALUE;
         int base = (m * CODEBOOK_SIZE) * SUB_D;
         for (int c = 0; c < CODEBOOK_SIZE; c++) {
             int idx = base + c * SUB_D;
-            double d0 = sub[0] - codebooksFlat[idx];
-            double d1 = sub[1] - codebooksFlat[idx + 1];
+            double d0 = v0 - codebooksFlat[idx];
+            double d1 = v1 - codebooksFlat[idx + 1];
             double dist = d0 * d0 + d1 * d1;
             if (dist < bestDist) {
                 bestDist = dist;

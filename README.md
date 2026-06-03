@@ -31,7 +31,7 @@ O índice (`data.bin`, ~220 MB) é gerado **uma vez** na sua máquina e baked na
 ## Stack
 
 | Camada        | Tecnologia                                                  |
-| ------------- |-------------------------------------------------------------|
+| ------------- | ----------------------------------------------------------- |
 | Linguagem     | Java 21                                                     |
 | Framework     | Helidon 4 SE (declarative DI, sem reflection em runtime)    |
 | Runtime       | GraalVM CE 25 -> Native Image → binário nativo de ~89 MB    |
@@ -99,6 +99,32 @@ Fraud detection API started on port: 8080
 ```
 
 > Para instalar o GraalVM localmente: `sdk install java 25.0.x-graal` (SDKMAN) ou baixe em https://www.graalvm.org/downloads/
+
+### 2c. Rodar benchmark de recall com recorte menor
+
+O modo `--recall` agora aceita recortes por variáveis de ambiente, para evitar editar código a cada experimento.
+
+```bash
+RECALL_SAMPLE_SIZE=5000 \
+RECALL_AT=5 \
+RECALL_MODES=scalar \
+RECALL_PRUNE_MODES=true,false \
+RECALL_NPROBES=8,16 \
+RECALL_CANDIDATES=10,20 \
+mvnd package -DskipTests && java -jar target/fraud-detection-api.jar --recall
+```
+
+Variáveis aceitas:
+
+| Variável             | Padrão              | Descrição                                 |
+| -------------------- | ------------------- | ----------------------------------------- |
+| `RECALL_SAMPLE_SIZE` | `20000`             | Quantidade de queries usadas no benchmark |
+| `RECALL_AT`          | `5`                 | Valor de Recall@k                         |
+| `RECALL_SEED`        | `42`                | Seed da amostragem                        |
+| `RECALL_MODES`       | `pq,scalar`         | Modos avaliados                           |
+| `RECALL_PRUNE_MODES` | `false,true`        | Estados da poda avaliados                 |
+| `RECALL_NPROBES`     | `1,2,4,8,16,32`     | Grade de `nprobe`                         |
+| `RECALL_CANDIDATES`  | `10,15,20,30,40,50` | Grade de `candidates`                     |
 
 ---
 
@@ -197,7 +223,7 @@ done
 ## Limites de recursos (competição)
 
 | Serviço   | CPU     | Memória    |
-|-----------|---------|------------|
+| --------- | ------- | ---------- |
 | haproxy   | 0.15    | 50 MB      |
 | api1      | 0.425   | 150 MB     |
 | api2      | 0.425   | 150 MB     |
@@ -207,13 +233,13 @@ done
 
 ## Variáveis de ambiente
 
-| Variável                     | Padrão                                  | Descrição                                      |
-| ---------------------------- | --------------------------------------- | ---------------------------------------------- |
-| `REFERENCES_PATH`            | `src/main/resources/references.json.gz` | Dataset de referência                          |
-| `NORMALIZATION_PATH`         | `src/main/resources/normalization.json` | Parâmetros de normalização                     |
-| `MCC_RISK_PATH`              | `src/main/resources/mcc_risk.json`      | Score de risco por MCC                         |
-| `DATA_BIN_PATH`              | `data.bin`                              | Caminho do índice gerado                       |
-| `APP_VECTOR_SEARCH_INDEX`    | `ivf_pq`                                | Algoritmo de busca (`brute_force` ou `ivf_pq`) |
-| `APP_VECTOR_SEARCH_RERANK`   | `true`                                  | Rerank dos candidatos por distância exata      |
-| `APP_VECTOR_SEARCH_NPROBE`   | `16`                                    | Número de clusters inspecionados por query     |
+| Variável                       | Padrão                                  | Descrição                                      |
+| ------------------------------ | --------------------------------------- | ---------------------------------------------- |
+| `REFERENCES_PATH`              | `src/main/resources/references.json.gz` | Dataset de referência                          |
+| `NORMALIZATION_PATH`           | `src/main/resources/normalization.json` | Parâmetros de normalização                     |
+| `MCC_RISK_PATH`                | `src/main/resources/mcc_risk.json`      | Score de risco por MCC                         |
+| `DATA_BIN_PATH`                | `data.bin`                              | Caminho do índice gerado                       |
+| `APP_VECTOR_SEARCH_INDEX`      | `ivf_pq`                                | Algoritmo de busca (`brute_force` ou `ivf_pq`) |
+| `APP_VECTOR_SEARCH_RERANK`     | `true`                                  | Rerank dos candidatos por distância exata      |
+| `APP_VECTOR_SEARCH_NPROBE`     | `16`                                    | Número de clusters inspecionados por query     |
 | `APP_VECTOR_SEARCH_CANDIDATES` | `50`                                    | Candidatos coarse antes do rerank              |
