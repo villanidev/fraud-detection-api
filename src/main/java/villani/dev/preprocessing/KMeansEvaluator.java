@@ -6,6 +6,24 @@ import java.util.*;
 
 public class KMeansEvaluator {
 
+    public record ClusterOccupancyStats(int minSize,
+                                        int p50Size,
+                                        int p90Size,
+                                        int p99Size,
+                                        int maxSize,
+                                        int emptyClusters,
+                                        double meanSize,
+                                        double stdDevSize) {
+    }
+
+    public record CoarseCoverageStats(int k,
+                                      int trainingSampleSize,
+                                      int probe,
+                                      double top1ClusterCoverage,
+                                      double topKClusterCoverage,
+                                      ClusterOccupancyStats occupancy) {
+    }
+
     public record EvaluationStats(int k,
                                   double meanWcss,
                                   double stdDevWcss,
@@ -15,6 +33,8 @@ public class KMeansEvaluator {
                                   double elbowScore) {
     }
 
+    private final float[] fullVectorsFlat;
+    private final int fullVectorCount;
     private final float[][] evaluationVectors;   // amostra fixa para avaliação justa
     private final int[] kCandidates;
     private final long baseSeed;
@@ -30,6 +50,8 @@ public class KMeansEvaluator {
      */
     public KMeansEvaluator(float[] fullVectorsFlat, int N, int[] kCandidates,
                            long baseSeed, int sampleSize, int trialsPerK) {
+        this.fullVectorsFlat = fullVectorsFlat;
+        this.fullVectorCount = N;
         this.kCandidates = kCandidates.clone();
         this.baseSeed = baseSeed;
         this.trialsPerK = trialsPerK;
@@ -46,6 +68,59 @@ public class KMeansEvaluator {
                 System.arraycopy(fullVectorsFlat, i * dim, this.evaluationVectors[i], 0, dim);
             }
         }
+    }
+
+    public List<CoarseCoverageStats> evaluateCoarseDetailed(int[] probeCandidates,
+                                                            int querySampleSize,
+                                                            int groundTruthK,
+                                                            int trainingSampleSize) {
+        float[][] queries = sampleQueries(fullVectorsFlat, fullVectorCount, querySampleSize, baseSeed + 7_919L);
+        int[][] groundTruth = RecallEvaluator.computeGroundTruth(queries, fullVectorsFlat, groundTruthK);
+        List<CoarseCoverageStats> stats = new ArrayList<>();
+
+        for (int k : kCandidates) {
+            log("[coarse-eval] Training IVF centroids for K=%d sample=%d ...", k, trainingSampleSize);
+            KMeans kmeans = new KMeans();
+            float[][] centroids = kmeans.cluster(fullVectorsFlat, fullVectorCount, k, baseSeed + k * 31L, trainingSampleSize);
+
+            log("[coarse-eval] Assigning vectors for K=%d ...", k);
+            int[][] idsByCluster = kmeans.assignFlat(fullVectorsFlat, fullVectorCount, centroids);
+            int[] assignedClusterById = buildAssignedClusterById(idsByCluster, fullVectorCount);
+            ClusterOccupancyStats occupancy = computeOccupancy(idsByCluster);
+
+            int maxProbe = Arrays.stream(probeCandidates).max().orElse(1);
+            int[][] probedClustersByQuery = computeProbedClusters(queries, centroids, maxProbe);
+            for (int probe : probeCandidates) {
+                double top1Coverage = 0.0;
+                double topKCoverage = 0.0;
+                for (int q = 0; q < queries.length; q++) {
+                    int[] probed = probedClustersByQuery[q];
+                    int top1Cluster = assignedClusterById[groundTruth[q][0]];
+                    if (containsCluster(probed, probe, top1Cluster)) {
+                        top1Coverage += 1.0;
+                    }
+
+                    int hits = 0;
+                    for (int neighbor = 0; neighbor < groundTruthK; neighbor++) {
+                        int clusterId = assignedClusterById[groundTruth[q][neighbor]];
+                        if (containsCluster(probed, probe, clusterId)) {
+                            hits++;
+                        }
+                    }
+                    topKCoverage += (double) hits / groundTruthK;
+                }
+
+                stats.add(new CoarseCoverageStats(
+                        k,
+                        trainingSampleSize,
+                        probe,
+                        top1Coverage / queries.length,
+                        topKCoverage / queries.length,
+                        occupancy));
+            }
+        }
+
+        return stats;
     }
 
     /**
@@ -209,6 +284,157 @@ public class KMeansEvaluator {
             }
         }
         return sample;
+    }
+
+    private float[][] sampleQueries(float[] flat, int N, int sampleSize, long seed) {
+        int actualSample = Math.min(sampleSize, N);
+        float[][] sample = new float[actualSample][14];
+        Random rnd = new Random(seed);
+        int[] indices = rnd.ints(0, N).distinct().limit(actualSample).toArray();
+        for (int i = 0; i < actualSample; i++) {
+            System.arraycopy(flat, indices[i] * 14, sample[i], 0, 14);
+        }
+        return sample;
+    }
+
+    private int[] buildAssignedClusterById(int[][] idsByCluster, int vectorCount) {
+        int[] assignedClusterById = new int[vectorCount];
+        for (int cluster = 0; cluster < idsByCluster.length; cluster++) {
+            for (int id : idsByCluster[cluster]) {
+                assignedClusterById[id] = cluster;
+            }
+        }
+        return assignedClusterById;
+    }
+
+    private ClusterOccupancyStats computeOccupancy(int[][] idsByCluster) {
+        int[] sizes = new int[idsByCluster.length];
+        long total = 0L;
+        int empty = 0;
+        for (int i = 0; i < idsByCluster.length; i++) {
+            sizes[i] = idsByCluster[i].length;
+            total += sizes[i];
+            if (sizes[i] == 0) {
+                empty++;
+            }
+        }
+        Arrays.sort(sizes);
+        double mean = sizes.length == 0 ? 0.0 : (double) total / sizes.length;
+        double variance = 0.0;
+        for (int size : sizes) {
+            double delta = size - mean;
+            variance += delta * delta;
+        }
+        variance = sizes.length == 0 ? 0.0 : variance / sizes.length;
+        return new ClusterOccupancyStats(
+                percentile(sizes, 0.0),
+                percentile(sizes, 0.50),
+                percentile(sizes, 0.90),
+                percentile(sizes, 0.99),
+                percentile(sizes, 1.0),
+                empty,
+                mean,
+                Math.sqrt(variance));
+    }
+
+    private int percentile(int[] sortedValues, double quantile) {
+        if (sortedValues.length == 0) {
+            return 0;
+        }
+        int index = (int) Math.round(quantile * (sortedValues.length - 1));
+        return sortedValues[Math.max(0, Math.min(sortedValues.length - 1, index))];
+    }
+
+    private int[][] computeProbedClusters(float[][] queries, float[][] centroids, int maxProbe) {
+        int k = centroids.length;
+        int actualProbe = Math.min(maxProbe, k);
+        int[][] probedClusters = new int[queries.length][actualProbe];
+        float[] centroidDistances = new float[k];
+        int[] order = new int[k];
+
+        for (int q = 0; q < queries.length; q++) {
+            for (int cluster = 0; cluster < k; cluster++) {
+                centroidDistances[cluster] = squaredDistance(queries[q], centroids[cluster]);
+                order[cluster] = cluster;
+            }
+            partialSort(order, centroidDistances, actualProbe);
+            System.arraycopy(order, 0, probedClusters[q], 0, actualProbe);
+        }
+
+        return probedClusters;
+    }
+
+    private boolean containsCluster(int[] clusters, int probe, int targetCluster) {
+        int limit = Math.min(probe, clusters.length);
+        for (int i = 0; i < limit; i++) {
+            if (clusters[i] == targetCluster) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private float squaredDistance(float[] query, float[] centroid) {
+        float distance = 0f;
+        for (int dim = 0; dim < query.length; dim++) {
+            float diff = query[dim] - centroid[dim];
+            distance += diff * diff;
+        }
+        return distance;
+    }
+
+    private void partialSort(int[] order, float[] dist, int top) {
+        quickselect(order, dist, 0, order.length - 1, top);
+        for (int i = 1; i < top; i++) {
+            int oi = order[i];
+            float di = dist[oi];
+            int j = i - 1;
+            while (j >= 0 && dist[order[j]] > di) {
+                order[j + 1] = order[j];
+                j--;
+            }
+            order[j + 1] = oi;
+        }
+    }
+
+    private void quickselect(int[] order, float[] dist, int left, int right, int k) {
+        while (left < right) {
+            int pivotIdx = partition(order, dist, left, right);
+            int rank = pivotIdx - left + 1;
+            if (rank == k) {
+                return;
+            }
+            if (k < rank) {
+                right = pivotIdx - 1;
+            } else {
+                left = pivotIdx + 1;
+                k -= rank;
+            }
+        }
+    }
+
+    private int partition(int[] order, float[] dist, int left, int right) {
+        int mid = (left + right) >>> 1;
+        if (dist[order[left]] > dist[order[mid]]) swap(order, left, mid);
+        if (dist[order[left]] > dist[order[right]]) swap(order, left, right);
+        if (dist[order[mid]] > dist[order[right]]) swap(order, mid, right);
+
+        float pivotDist = dist[order[right]];
+        int i = left - 1;
+        for (int j = left; j < right; j++) {
+            if (dist[order[j]] <= pivotDist) {
+                i++;
+                swap(order, i, j);
+            }
+        }
+        swap(order, i + 1, right);
+        return i + 1;
+    }
+
+    private void swap(int[] values, int i, int j) {
+        int tmp = values[i];
+        values[i] = values[j];
+        values[j] = tmp;
     }
 
     private Map<Integer, Double> computeElbowScores(Map<Integer, EvaluationStats> stats) {

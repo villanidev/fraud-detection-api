@@ -59,6 +59,11 @@ public class Main {
             return;
         }
 
+        if (args.length > 0 && "--coarse-evaluation".equals(args[0])) {
+            runCoarseEvaluation();
+            return;
+        }
+
         if (args.length > 0 && "--recall".equals(args[0])) {
             runRecallEvaluation();
             return;
@@ -190,6 +195,54 @@ public class Main {
                                 mode, pruneEnabled, np, cand, recall, res.avgLatencyMs(), res.qps());
                     }
                 }
+            }
+        }
+
+        System.exit(0);
+    }
+
+    private static void runCoarseEvaluation() throws IOException {
+        Map<String, String> env = System.getenv();
+        DataReader dataReader = Services.get(DataReader.class);
+        System.out.println("[coarse-eval] Loading references...");
+        DataReader.ReferenceData ref = dataReader.loadReferences(Path.of(env.getOrDefault("REFERENCES_PATH", "src/main/resources/references.json.gz")));
+        float[] vectorsFlat = ref.flat();
+        int vectorCount = ref.count();
+
+        int[] kCandidates = parseIntArrayEnv(env, "COARSE_EVAL_KS", new int[] { 2048, 3072, 4096 });
+        int[] probeCandidates = parseIntArrayEnv(env, "COARSE_EVAL_PROBES", new int[] { 1, 2, 4 });
+        int[] trainingSampleSizes = parseIntArrayEnv(env, "COARSE_EVAL_TRAIN_SAMPLES", new int[] { 600_000, 900_000 });
+        int querySampleSize = parseIntEnv(env, "COARSE_EVAL_QUERY_SAMPLE", 2_000);
+        int groundTruthK = parseIntEnv(env, "COARSE_EVAL_GROUND_TRUTH_K", 5);
+        long seed = parseLongEnv(env, "COARSE_EVAL_SEED", 42L);
+
+        System.out.printf("[coarse-eval] ks=%s probes=%s trainSamples=%s querySample=%d groundTruthK=%d seed=%d%n",
+                Arrays.toString(kCandidates),
+                Arrays.toString(probeCandidates),
+                Arrays.toString(trainingSampleSizes),
+                querySampleSize,
+                groundTruthK,
+                seed);
+
+        System.out.println("train_sample,k,probe,top1_cluster_coverage,topk_cluster_coverage,empty_clusters,min_size,p50_size,p90_size,p99_size,max_size,mean_size,stddev_size");
+        for (int trainingSampleSize : trainingSampleSizes) {
+            KMeansEvaluator evaluator = new KMeansEvaluator(vectorsFlat, vectorCount, kCandidates, seed, Math.min(trainingSampleSize, vectorCount), 1);
+            for (KMeansEvaluator.CoarseCoverageStats stats : evaluator.evaluateCoarseDetailed(probeCandidates, querySampleSize, groundTruthK, trainingSampleSize)) {
+                KMeansEvaluator.ClusterOccupancyStats occupancy = stats.occupancy();
+                System.out.printf("%d,%d,%d,%.6f,%.6f,%d,%d,%d,%d,%d,%d,%.2f,%.2f%n",
+                        stats.trainingSampleSize(),
+                        stats.k(),
+                        stats.probe(),
+                        stats.top1ClusterCoverage(),
+                        stats.topKClusterCoverage(),
+                        occupancy.emptyClusters(),
+                        occupancy.minSize(),
+                        occupancy.p50Size(),
+                        occupancy.p90Size(),
+                        occupancy.p99Size(),
+                        occupancy.maxSize(),
+                        occupancy.meanSize(),
+                        occupancy.stdDevSize());
             }
         }
 

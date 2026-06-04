@@ -41,7 +41,7 @@ public class KMeans {
     private static final int MIN_ITERATIONS_PQ = 6;
     private static final int N_TRIALS_IVF  = 1;            // IVF se beneficia menos de múltiplos trials
     private static final int N_TRIALS_PQ   = 3;            // PQ é mais sensível, 3 trials já ajudam
-    private static final int SAMPLE_SIZE   = 600_000;      // usar amostras para IVF (defina 0 para todos)
+    private static final int DEFAULT_SAMPLE_SIZE = 900_000;      // usar amostras para IVF (defina 0 para todos)
     private static final double CENTROID_SHIFT_TOL_IVF = 1e-4;
     private static final double CENTROID_SHIFT_TOL_PQ = 1e-5;
     private static final double RELATIVE_INERTIA_TOL_IVF = 1e-4;
@@ -59,10 +59,15 @@ public class KMeans {
      * @return centróides [k][dimensão]
      */
     public float[][] cluster(float[][] vectors, int k, long seed) {
+        return cluster(vectors, k, seed, DEFAULT_SAMPLE_SIZE);
+    }
+
+    public float[][] cluster(float[][] vectors, int k, long seed, int sampleSizeOverride) {
         float[][] trainVectors = vectors;
-        if (SAMPLE_SIZE > 0 && vectors.length > SAMPLE_SIZE) {
-            trainVectors = sample(vectors, seed);
-            System.out.printf("[KMeans] IVF: Using %d samples (total %d)%n", SAMPLE_SIZE, vectors.length);
+        int sampleSize = resolveSampleSize(sampleSizeOverride);
+        if (sampleSize > 0 && vectors.length > sampleSize) {
+            trainVectors = sample(vectors, sampleSize, seed);
+            System.out.printf("[KMeans] IVF: Using %d samples (total %d)%n", sampleSize, vectors.length);
         }
         float[][] bestCentroids = null;
         double bestInertia = Double.MAX_VALUE;
@@ -86,10 +91,15 @@ public class KMeans {
      * full matrix for very large N.
      */
     public float[][] cluster(float[] vectorsFlat, int N, int k, long seed) {
+        return cluster(vectorsFlat, N, k, seed, DEFAULT_SAMPLE_SIZE);
+    }
+
+    public float[][] cluster(float[] vectorsFlat, int N, int k, long seed, int sampleSizeOverride) {
         float[][] trainVectors = null;
-        if (SAMPLE_SIZE > 0 && N > SAMPLE_SIZE) {
-            trainVectors = sampleFlat(vectorsFlat, N, seed);
-            System.out.printf("[KMeans] IVF: Using %d samples (total %d)%n", SAMPLE_SIZE, N);
+        int sampleSize = resolveSampleSize(sampleSizeOverride);
+        if (sampleSize > 0 && N > sampleSize) {
+            trainVectors = sampleFlat(vectorsFlat, N, sampleSize, seed);
+            System.out.printf("[KMeans] IVF: Using %d samples (total %d)%n", sampleSize, N);
         } else {
             // materialize full matrix only if N is small enough
             int dim = 14;
@@ -721,31 +731,35 @@ public class KMeans {
     /**
      * Amostra aleatória sem reposição.
      */
-    private float[][] sample(float[][] vectors, long seed) {
+    private int resolveSampleSize(int sampleSizeOverride) {
+        return sampleSizeOverride >= 0 ? sampleSizeOverride : DEFAULT_SAMPLE_SIZE;
+    }
+
+    private float[][] sample(float[][] vectors, int sampleSize, long seed) {
         int n = vectors.length;
-        float[][] sample = new float[SAMPLE_SIZE][];
+        float[][] sample = new float[sampleSize][];
         Random rnd = new Random(seed);
         // Amostragem por reservatório para eficiência (não aloca array de índices)
-        System.arraycopy(vectors, 0, sample, 0, SAMPLE_SIZE);
-        for (int i = SAMPLE_SIZE; i < n; i++) {
+        System.arraycopy(vectors, 0, sample, 0, sampleSize);
+        for (int i = sampleSize; i < n; i++) {
             int j = rnd.nextInt(i + 1);
-            if (j < SAMPLE_SIZE) {
+            if (j < sampleSize) {
                 sample[j] = vectors[i];
             }
         }
         return sample;
     }
 
-    private float[][] sampleFlat(float[] flat, int N, long seed) {
-        float[][] sample = new float[SAMPLE_SIZE][VECTOR_DIMS];
+    private float[][] sampleFlat(float[] flat, int N, int sampleSize, long seed) {
+        float[][] sample = new float[sampleSize][VECTOR_DIMS];
         Random rnd = new Random(seed);
-        // copy first SAMPLE_SIZE
-        for (int i = 0; i < SAMPLE_SIZE; i++) {
+        // copy first sampleSize
+        for (int i = 0; i < sampleSize; i++) {
             System.arraycopy(flat, i * VECTOR_DIMS, sample[i], 0, VECTOR_DIMS);
         }
-        for (int i = SAMPLE_SIZE; i < N; i++) {
+        for (int i = sampleSize; i < N; i++) {
             int j = rnd.nextInt(i + 1);
-            if (j < SAMPLE_SIZE) {
+            if (j < sampleSize) {
                 System.arraycopy(flat, i * VECTOR_DIMS, sample[j], 0, VECTOR_DIMS);
             }
         }
