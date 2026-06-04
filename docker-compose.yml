@@ -21,17 +21,15 @@ services:
           memory: "50MB"
 
   api1:
-    image: villanidev/rinha-de-backend-2026:20260604121239
+    image: villanidev/rinha-de-backend-2026:20260601031832
     cpuset: "1"
     environment:
       SERVER_SOCKET_PATH: /sockets/api1.sock
       APP_VECTOR_SEARCH_INDEX: ivf_pq
-      APP_VECTOR_SEARCH_MODE: pq
-      APP_VECTOR_SEARCH_NPROBE: "2"
+      APP_VECTOR_SEARCH_NPROBE: "4"
       APP_VECTOR_SEARCH_CANDIDATES: "20"
-      APP_VECTOR_SEARCH_PRUNE_ENABLED: "true"
       APP_VECTOR_SEARCH_RERANK_ENABLED: "true"
-      APP_VECTOR_SEARCH_RERANK_NPROBE: "2"
+      APP_VECTOR_SEARCH_RERANK_NPROBE: "20"
       APP_VECTOR_SEARCH_RERANK_CANDIDATES: "20"
       APP_FRAUD_DEBUG: "false"
     volumes:
@@ -45,17 +43,15 @@ services:
           memory: "150MB"
 
   api2:
-    image: villanidev/rinha-de-backend-2026:20260604121239
+    image: villanidev/rinha-de-backend-2026:20260601031832
     cpuset: "2"
     environment:
       SERVER_SOCKET_PATH: /sockets/api2.sock
       APP_VECTOR_SEARCH_INDEX: ivf_pq
-      APP_VECTOR_SEARCH_MODE: pq
-      APP_VECTOR_SEARCH_NPROBE: "2"
+      APP_VECTOR_SEARCH_NPROBE: "4"
       APP_VECTOR_SEARCH_CANDIDATES: "20"
-      APP_VECTOR_SEARCH_PRUNE_ENABLED: "true"
       APP_VECTOR_SEARCH_RERANK_ENABLED: "true"
-      APP_VECTOR_SEARCH_RERANK_NPROBE: "2"
+      APP_VECTOR_SEARCH_RERANK_NPROBE: "20"
       APP_VECTOR_SEARCH_RERANK_CANDIDATES: "20"
       APP_FRAUD_DEBUG: "false"
     volumes:
