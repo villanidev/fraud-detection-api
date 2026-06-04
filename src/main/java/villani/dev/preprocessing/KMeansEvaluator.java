@@ -6,6 +6,15 @@ import java.util.*;
 
 public class KMeansEvaluator {
 
+    public record EvaluationStats(int k,
+                                  double meanWcss,
+                                  double stdDevWcss,
+                                  double minWcss,
+                                  double maxWcss,
+                                  double relativeImprovementFromPrevious,
+                                  double elbowScore) {
+    }
+
     private final float[][] evaluationVectors;   // amostra fixa para avaliação justa
     private final int[] kCandidates;
     private final long baseSeed;
@@ -43,6 +52,15 @@ public class KMeansEvaluator {
      * Executa a avaliação e retorna um mapa K → WCSS médio.
      */
     public Map<Integer, Double> evaluate() {
+        Map<Integer, EvaluationStats> stats = evaluateDetailed();
+        Map<Integer, Double> averages = new LinkedHashMap<>();
+        for (var entry : stats.entrySet()) {
+            averages.put(entry.getKey(), entry.getValue().meanWcss());
+        }
+        return averages;
+    }
+
+    public Map<Integer, EvaluationStats> evaluateDetailed() {
         Map<Integer, List<Double>> raw = new LinkedHashMap<>();
 
         for (int k : kCandidates) {
@@ -60,13 +78,45 @@ public class KMeansEvaluator {
             log("  K=%4d → average WCSS = %.2f", k, avg);
         }
 
-        // Constrói mapa de médias
-        Map<Integer, Double> averages = new LinkedHashMap<>();
+        Map<Integer, EvaluationStats> stats = new LinkedHashMap<>();
+        Integer previousK = null;
         for (var entry : raw.entrySet()) {
-            averages.put(entry.getKey(),
-                    entry.getValue().stream().mapToDouble(d -> d).average().orElse(0));
+            int k = entry.getKey();
+            List<Double> values = entry.getValue();
+            double mean = values.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+            double variance = values.stream()
+                    .mapToDouble(value -> {
+                        double delta = value - mean;
+                        return delta * delta;
+                    })
+                    .average()
+                    .orElse(0.0);
+            double stdDev = Math.sqrt(variance);
+            double min = values.stream().mapToDouble(Double::doubleValue).min().orElse(mean);
+            double max = values.stream().mapToDouble(Double::doubleValue).max().orElse(mean);
+            double relativeImprovement = 0.0;
+            if (previousK != null) {
+                double previousMean = stats.get(previousK).meanWcss();
+                relativeImprovement = relativeImprovement(previousMean, mean);
+            }
+            stats.put(k, new EvaluationStats(k, mean, stdDev, min, max, relativeImprovement, 0.0));
+            previousK = k;
         }
-        return averages;
+
+        Map<Integer, Double> elbowScores = computeElbowScores(stats);
+        Map<Integer, EvaluationStats> enriched = new LinkedHashMap<>();
+        for (var entry : stats.entrySet()) {
+            EvaluationStats current = entry.getValue();
+            enriched.put(entry.getKey(), new EvaluationStats(
+                    current.k(),
+                    current.meanWcss(),
+                    current.stdDevWcss(),
+                    current.minWcss(),
+                    current.maxWcss(),
+                    current.relativeImprovementFromPrevious(),
+                    elbowScores.getOrDefault(entry.getKey(), 0.0)));
+        }
+        return enriched;
     }
 
     /**
@@ -119,6 +169,14 @@ public class KMeansEvaluator {
         return ks.get(bestIdx);
     }
 
+    public int suggestKFromStats(Map<Integer, EvaluationStats> statsMap) {
+        Map<Integer, Double> means = new LinkedHashMap<>();
+        for (var entry : statsMap.entrySet()) {
+            means.put(entry.getKey(), entry.getValue().meanWcss());
+        }
+        return suggestK(means);
+    }
+
     /**
      * Calcula o WCSS (inércia) para um conjunto de centróides.
      */
@@ -138,23 +196,6 @@ public class KMeansEvaluator {
         return wcss;
     }
 
-    /**
-     * Amostragem de reservatório – mesmo algoritmo do KMeans, mantido privado para autonomia.
-     */
-    private static float[][] sample(float[][] vectors, int sampleSize, long seed) {
-        int n = vectors.length;
-        float[][] sample = new float[sampleSize][];
-        Random rnd = new Random(seed);
-        System.arraycopy(vectors, 0, sample, 0, sampleSize);
-        for (int i = sampleSize; i < n; i++) {
-            int j = rnd.nextInt(i + 1);
-            if (j < sampleSize) {
-                sample[j] = vectors[i];
-            }
-        }
-        return sample;
-    }
-
     private static float[][] sampleFlat(float[] flat, int N, int sampleSize, long seed) {
         float[][] sample = new float[sampleSize][14];
         Random rnd = new Random(seed);
@@ -168,6 +209,55 @@ public class KMeansEvaluator {
             }
         }
         return sample;
+    }
+
+
+    private Map<Integer, Double> computeElbowScores(Map<Integer, EvaluationStats> stats) {
+        List<Integer> ks = new ArrayList<>(stats.keySet());
+        Collections.sort(ks);
+        Map<Integer, Double> elbowScores = new LinkedHashMap<>();
+        if (ks.size() < 3) {
+            for (int k : ks) {
+                elbowScores.put(k, 0.0);
+            }
+            return elbowScores;
+        }
+
+        double minK = ks.get(0);
+        double maxK = ks.get(ks.size() - 1);
+        double minW = stats.get(ks.get(ks.size() - 1)).meanWcss();
+        double maxW = stats.get(ks.get(0)).meanWcss();
+        double x0 = 0.0;
+        double y0 = normalized(stats.get(ks.get(0)).meanWcss(), minW, maxW);
+        double x1 = normalized(ks.get(ks.size() - 1), minK, maxK);
+        double y1 = normalized(stats.get(ks.get(ks.size() - 1)).meanWcss(), minW, maxW);
+        double lineDx = x1 - x0;
+        double lineDy = y1 - y0;
+        double lineLen = Math.sqrt(lineDx * lineDx + lineDy * lineDy);
+
+        for (int k : ks) {
+            double x = normalized(k, minK, maxK);
+            double y = normalized(stats.get(k).meanWcss(), minW, maxW);
+            double score = lineLen == 0.0
+                    ? 0.0
+                    : Math.abs(lineDy * x - lineDx * y + x1 * y0 - y1 * x0) / lineLen;
+            elbowScores.put(k, score);
+        }
+        return elbowScores;
+    }
+
+    private double relativeImprovement(double previous, double current) {
+        if (previous <= 0.0) {
+            return 0.0;
+        }
+        return (previous - current) / previous;
+    }
+
+    private double normalized(double value, double min, double max) {
+        if (max == min) {
+            return 0.0;
+        }
+        return (value - min) / (max - min);
     }
 
     private void log(String format, Object... args) {

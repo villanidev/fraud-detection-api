@@ -11,7 +11,7 @@ server:
 app:
   vector-search:
     index: "ivf_pq" #"brute_force"
-    clusters: 4096
+    clusters: 2048
     nprobe: 16
     candidates: 10
     rerank:

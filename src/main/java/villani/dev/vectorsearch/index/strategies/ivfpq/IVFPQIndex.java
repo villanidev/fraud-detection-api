@@ -2,6 +2,9 @@ package villani.dev.vectorsearch.index.strategies.ivfpq;
 
 import villani.dev.vectorsearch.index.VectorIndex;
 
+import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
+import java.nio.ShortBuffer;
 import java.util.Arrays;
 
 /**
@@ -20,8 +23,11 @@ public class IVFPQIndex implements VectorIndex {
 
     private final float[] centroidsFlat;   // [K * DIMS] — flat for sequential access, no pointer chasing
     private final int K;
-    private final int[][] idsByCluster;    // [K][count]
-    private final short[][] codesByCluster; // [K][count*M] flat — avoids 3M short[7] object headers
+    private final int[] clusterSizes;
+    private final int[] idsStartIndex;
+    private final IntBuffer idsPayload;
+    private final int[] codesStartIndex;
+    private final ShortBuffer codesPayload;
     private final byte[] labels;           // [N] — 0=legit, 1=fraud
     private final ProductQuantizer pq;
     private final int nprobe;
@@ -34,10 +40,18 @@ public class IVFPQIndex implements VectorIndex {
     private final ThreadLocal<float[]> tlAdcTable;
 
     public IVFPQIndex(float[][] centroids,
-                      int[][] idsByCluster,
-                      short[][] codesByCluster,
+                      int[] clusterSizes,
+                      int[] idsStartIndex,
+                      IntBuffer idsPayload,
+                      int[] codesStartIndex,
+                      ShortBuffer codesPayload,
                       byte[] labels,
                       ProductQuantizer pq,
+                      float[] clusterMinValues,
+                      float[] clusterMaxValues,
+                      int[] clusterFlags,
+                      ByteBuffer scalarQuantizedPayload,
+                      int scalarQuantizedStrideBytes,
                       int nprobe,
                       int candidates) {
         System.out.println("Initializing IVFPQIndex with " + centroids.length + " centroids. And nprobe=" + nprobe + ", " +
@@ -47,8 +61,11 @@ public class IVFPQIndex implements VectorIndex {
         this.centroidsFlat = new float[K * DIMS];
         for (int c = 0; c < K; c++)
             System.arraycopy(centroids[c], 0, centroidsFlat, c * DIMS, DIMS);
-        this.idsByCluster = idsByCluster;
-        this.codesByCluster = codesByCluster;
+        this.clusterSizes = clusterSizes;
+        this.idsStartIndex = idsStartIndex;
+        this.idsPayload = idsPayload;
+        this.codesStartIndex = codesStartIndex;
+        this.codesPayload = codesPayload;
         this.labels = labels;
         this.pq = pq;
         this.nprobe = nprobe;
@@ -78,34 +95,32 @@ public class IVFPQIndex implements VectorIndex {
         }
         partialSort(centroidOrder, centroidDist, Math.min(nprobeParam, K));
 
-        // --- Step 2: Precompute ADC table (reuse ThreadLocal scratch array) ---
+        Arrays.fill(distances, Float.MAX_VALUE);
+        Arrays.fill(neighbors, -1);
         float[] adcTable = tlAdcTable.get();
         pq.buildAdcTableFlat(query, adcTable);
 
-        // --- Step 3: Scan every cluster ---
-        Arrays.fill(distances, Float.MAX_VALUE);
-        Arrays.fill(neighbors, -1);
-
         int actualProbes = Math.min(nprobeParam, K);
+        int thresholdIndex = Math.max(0, candidatesParam - 1);
         for (int p = 0; p < actualProbes; p++) {
             int clusterIdx = centroidOrder[p];
-            int[] ids = idsByCluster[clusterIdx];
-            short[] codes = codesByCluster[clusterIdx]; // flat: codes for vector i at offset i*M
-
-            for (int i = 0; i < ids.length; i++) {
-                float approxDist = pq.adcDistanceFlat(adcTable, codes, i * ProductQuantizer.M);
-                if (approxDist < distances[Math.max(0, candidatesParam - 1)]) {
-                    insertSorted(neighbors, distances, candidatesParam, ids[i], approxDist);
+            int count = clusterSizes[clusterIdx];
+            int idsBase = idsStartIndex[clusterIdx];
+            int codesBase = codesStartIndex[clusterIdx];
+            for (int i = 0; i < count; i++) {
+                float approxDist = adcDistanceMapped(adcTable, codesBase + i * ProductQuantizer.M);
+                if (approxDist < distances[thresholdIndex]) {
+                    insertSorted(neighbors, distances, candidatesParam, idsPayload.get(idsBase + i), approxDist);
                 }
             }
         }
 
-        // --- Step 4: Count fraud labels in top-k ---
         int fraudCount = 0;
         for (int i = 0; i < topK; i++) {
-            if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
+            if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) {
+                fraudCount++;
+            }
         }
-
         return fraudCount;
     }
 
@@ -199,6 +214,16 @@ public class IVFPQIndex implements VectorIndex {
         float d13 = query[13] - flat[offset + 13];
         return d0*d0 + d1*d1 + d2*d2 + d3*d3 + d4*d4 + d5*d5 + d6*d6 +
                 d7*d7 + d8*d8 + d9*d9 + d10*d10 + d11*d11 + d12*d12 + d13*d13;
+    }
+
+    private float adcDistanceMapped(float[] tableFlat, int codeOffset) {
+        return tableFlat[0 * ProductQuantizer.CODEBOOK_SIZE + codesPayload.get(codeOffset)]
+                + tableFlat[1 * ProductQuantizer.CODEBOOK_SIZE + codesPayload.get(codeOffset + 1)]
+                + tableFlat[2 * ProductQuantizer.CODEBOOK_SIZE + codesPayload.get(codeOffset + 2)]
+                + tableFlat[3 * ProductQuantizer.CODEBOOK_SIZE + codesPayload.get(codeOffset + 3)]
+                + tableFlat[4 * ProductQuantizer.CODEBOOK_SIZE + codesPayload.get(codeOffset + 4)]
+                + tableFlat[5 * ProductQuantizer.CODEBOOK_SIZE + codesPayload.get(codeOffset + 5)]
+                + tableFlat[6 * ProductQuantizer.CODEBOOK_SIZE + codesPayload.get(codeOffset + 6)];
     }
 
     @Override

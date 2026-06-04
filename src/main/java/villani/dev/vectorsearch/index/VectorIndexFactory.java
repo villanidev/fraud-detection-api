@@ -7,6 +7,9 @@ import villani.dev.vectorsearch.index.strategies.hnsw.HNSWIndex;
 import villani.dev.vectorsearch.index.strategies.ivfpq.IVFPQIndex;
 import villani.dev.vectorsearch.index.strategies.ivfpq.ProductQuantizer;
 
+import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
+import java.nio.ShortBuffer;
 import java.nio.channels.FileChannel;
 
 /**
@@ -76,26 +79,37 @@ public class VectorIndexFactory {
      * @param vectorCount    total number of reference vectors
      */
     public VectorIndex create(float[][] centroids,
-                              int[][] idsByCluster,
-                              short[][] codesByCluster,
+                              int[] clusterSizes,
+                              int[] idsStartIndex,
+                              IntBuffer idsPayload,
+                              int[] codesStartIndex,
+                              ShortBuffer codesPayload,
                               float[] vectors,
                               byte[] labels,
                               ProductQuantizer pq,
+                              float[] clusterMinValues,
+                              float[] clusterMaxValues,
+                              int[] clusterFlags,
+                              ByteBuffer scalarQuantizedPayload,
+                              int scalarQuantizedStrideBytes,
                               FileChannel vectorsChannel,   // substitui MappedByteBuffer
                               long vectorsOffset,
                               int vectorCount) {
 
         VectorIndex base = switch (indexType) {
             case "brute_force" -> new BruteForceIndex(vectors, labels);
-            case "ivf_pq" -> new IVFPQIndex(centroids, idsByCluster, codesByCluster,
-                                              labels, pq, nprobe, candidates);
+            case "ivf_pq" -> new IVFPQIndex(centroids, clusterSizes, idsStartIndex, idsPayload, codesStartIndex, codesPayload,
+                                              labels, pq, clusterMinValues, clusterMaxValues,
+                                              clusterFlags, scalarQuantizedPayload,
+                                              scalarQuantizedStrideBytes,
+                                              nprobe, candidates);
             case "hnsw" -> new HNSWIndex(labels);
             default -> throw new IllegalArgumentException(
                     "Unknown vector-search index: '" + indexType + "'. Valid values: brute_force, ivf_pq, hnsw");
         };
 
         if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
-            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, rerankNprobe, rerankCandidates);
+            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, nprobe, candidates, vectorCount, rerankNprobe, rerankCandidates);
         }
 
         return base;
@@ -105,27 +119,37 @@ public class VectorIndexFactory {
      * Cria o índice com parâmetros de busca customizados (usado no benchmark).
      */
     public VectorIndex create(float[][] centroids,
-                              int[][] idsByCluster,
-                              short[][] codesByCluster,
+                      int[] clusterSizes,
+                      int[] idsStartIndex,
+                      IntBuffer idsPayload,
+                      int[] codesStartIndex,
+                      ShortBuffer codesPayload,
                               float[] vectors,
                               byte[] labels,
                               ProductQuantizer pq,
+                              float[] clusterMinValues,
+                              float[] clusterMaxValues,
+                              int[] clusterFlags,
+                      ByteBuffer scalarQuantizedPayload,
+                              int scalarQuantizedStrideBytes,
                               FileChannel vectorsChannel,
                               long vectorsOffset,
                               int vectorCount,
                               int nprobe,
                               int candidates) {
-
         VectorIndex base = switch (indexType) {
             case "brute_force" -> new BruteForceIndex(vectors, labels);
-                case "ivf_pq" -> new IVFPQIndex(centroids, idsByCluster, codesByCluster,
-                    labels, pq, nprobe, candidates);
+                        case "ivf_pq" -> new IVFPQIndex(centroids, clusterSizes, idsStartIndex, idsPayload, codesStartIndex, codesPayload,
+                    labels, pq, clusterMinValues, clusterMaxValues,
+                    clusterFlags, scalarQuantizedPayload,
+                            scalarQuantizedStrideBytes,
+                    nprobe, candidates);
             case "hnsw" -> new HNSWIndex(labels);
             default -> throw new IllegalArgumentException("Unknown index type: " + indexType);
         };
 
         if (rerank && vectorsChannel != null && !(base instanceof BruteForceIndex)) {
-            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, vectorCount, rerankNprobe, rerankCandidates);
+            return new ReRankingVectorIndex(base, vectorsChannel, vectorsOffset, nprobe, candidates, vectorCount, rerankNprobe, rerankCandidates);
         }
 
         return base;
