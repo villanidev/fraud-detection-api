@@ -32,15 +32,11 @@ import java.nio.channels.FileChannel;
 public class VectorIndexFactory {
 
     private static final String DEFAULT_INDEX = "ivf_pq";
-    private static final String DEFAULT_MODE = "scalar";
     private static final int DEFAULT_NPROBE = 4;
     private static final int DEFAULT_CANDIDATES = 10;
     private static final boolean DEFAULT_RERANK = true;
     private static final int DEFAULT_RERANK_NPROBE = 32;
     private static final int DEFAULT_RERANK_CANDIDATES = 10;
-    private static final boolean DEFAULT_PRUNE_ENABLED = true;
-    private static final double DEFAULT_PRUNE_EPSILON = 0.02d;
-    private static final double DEFAULT_PRUNE_SENTINEL_PENALTY = 4.0d;
 
     private final String indexType;
     private final int nprobe;
@@ -48,9 +44,6 @@ public class VectorIndexFactory {
     private final boolean rerank;
     private final int rerankNprobe;
     private final int rerankCandidates;
-    private final String mode;
-    private final boolean scalarScanEnabled;
-    private final boolean pruneEnabled;
 
     @Service.Inject
     public VectorIndexFactory(Config config) {
@@ -61,15 +54,6 @@ public class VectorIndexFactory {
         System.out.println("Configured nprobe: " + nprobe);
         this.candidates = vs.get("candidates").asInt().orElse(DEFAULT_CANDIDATES);
         System.out.println("Configured candidates: " + candidates);
-        this.mode = vs.get("mode").asString().orElse(DEFAULT_MODE);
-        if (!"pq".equals(mode) && !"scalar".equals(mode)) {
-            throw new IllegalArgumentException("Unknown vector-search mode: '" + mode + "'. Valid values: pq, scalar");
-        }
-        this.scalarScanEnabled = "scalar".equals(mode);
-        System.out.println("Configured vector search mode: " + mode);
-        Config pruneNode = vs.get("prune");
-        this.pruneEnabled = pruneNode.get("enabled").asBoolean().orElse(DEFAULT_PRUNE_ENABLED);
-        System.out.println("Configured cluster prune: " + pruneEnabled);
 
         Config rerankNode = vs.get("rerank");
         this.rerank = rerankNode.get("enabled").asBoolean().orElse(DEFAULT_RERANK);
@@ -117,8 +101,7 @@ public class VectorIndexFactory {
             case "ivf_pq" -> new IVFPQIndex(centroids, clusterSizes, idsStartIndex, idsPayload, codesStartIndex, codesPayload,
                                               labels, pq, clusterMinValues, clusterMaxValues,
                                               clusterFlags, scalarQuantizedPayload,
-                                              scalarQuantizedStrideBytes, scalarScanEnabled,
-                                              pruneEnabled, (float) DEFAULT_PRUNE_EPSILON, (float) DEFAULT_PRUNE_SENTINEL_PENALTY,
+                                              scalarQuantizedStrideBytes,
                                               nprobe, candidates);
             case "hnsw" -> new HNSWIndex(labels);
             default -> throw new IllegalArgumentException(
@@ -154,43 +137,12 @@ public class VectorIndexFactory {
                               int vectorCount,
                               int nprobe,
                               int candidates) {
-        return create(centroids, clusterSizes, idsStartIndex, idsPayload, codesStartIndex, codesPayload,
-                vectors, labels, pq,
-                clusterMinValues, clusterMaxValues, clusterFlags,
-                scalarQuantizedPayload, scalarQuantizedStrideBytes,
-                vectorsChannel, vectorsOffset, vectorCount,
-                nprobe, candidates, scalarScanEnabled, pruneEnabled);
-    }
-
-    public VectorIndex create(float[][] centroids,
-                      int[] clusterSizes,
-                      int[] idsStartIndex,
-                      IntBuffer idsPayload,
-                      int[] codesStartIndex,
-                      ShortBuffer codesPayload,
-                              float[] vectors,
-                              byte[] labels,
-                              ProductQuantizer pq,
-                              float[] clusterMinValues,
-                              float[] clusterMaxValues,
-                              int[] clusterFlags,
-                      ByteBuffer scalarQuantizedPayload,
-                              int scalarQuantizedStrideBytes,
-                              FileChannel vectorsChannel,
-                              long vectorsOffset,
-                              int vectorCount,
-                              int nprobe,
-                              int candidates,
-                              boolean scalarScanEnabled,
-                              boolean pruneEnabled) {
-
         VectorIndex base = switch (indexType) {
             case "brute_force" -> new BruteForceIndex(vectors, labels);
-                case "ivf_pq" -> new IVFPQIndex(centroids, clusterSizes, idsStartIndex, idsPayload, codesStartIndex, codesPayload,
+                        case "ivf_pq" -> new IVFPQIndex(centroids, clusterSizes, idsStartIndex, idsPayload, codesStartIndex, codesPayload,
                     labels, pq, clusterMinValues, clusterMaxValues,
                     clusterFlags, scalarQuantizedPayload,
-                    scalarQuantizedStrideBytes, scalarScanEnabled,
-                    pruneEnabled, (float) DEFAULT_PRUNE_EPSILON, (float) DEFAULT_PRUNE_SENTINEL_PENALTY,
+                            scalarQuantizedStrideBytes,
                     nprobe, candidates);
             case "hnsw" -> new HNSWIndex(labels);
             default -> throw new IllegalArgumentException("Unknown index type: " + indexType);
@@ -201,41 +153,6 @@ public class VectorIndexFactory {
         }
 
         return base;
-    }
-
-    public VectorIndex create(float[][] centroids,
-                              int[] clusterSizes,
-                              int[] idsStartIndex,
-                              IntBuffer idsPayload,
-                              int[] codesStartIndex,
-                              ShortBuffer codesPayload,
-                              float[] vectors,
-                              byte[] labels,
-                              ProductQuantizer pq,
-                              float[] clusterMinValues,
-                              float[] clusterMaxValues,
-                              int[] clusterFlags,
-                              ByteBuffer scalarQuantizedPayload,
-                              int scalarQuantizedStrideBytes,
-                              FileChannel vectorsChannel,
-                              long vectorsOffset,
-                              int vectorCount,
-                              int nprobe,
-                              int candidates,
-                              String mode,
-                              boolean pruneEnabled) {
-        boolean scalarEnabled = switch (mode) {
-            case "pq" -> false;
-            case "scalar" -> true;
-            default -> throw new IllegalArgumentException("Unknown vector-search mode: '" + mode + "'. Valid values: pq, scalar");
-        };
-
-        return create(centroids, clusterSizes, idsStartIndex, idsPayload, codesStartIndex, codesPayload,
-                vectors, labels, pq,
-                clusterMinValues, clusterMaxValues, clusterFlags,
-                scalarQuantizedPayload, scalarQuantizedStrideBytes,
-                vectorsChannel, vectorsOffset, vectorCount,
-                nprobe, candidates, scalarEnabled, pruneEnabled);
     }
 
     public String getIndexType()  { return indexType; }

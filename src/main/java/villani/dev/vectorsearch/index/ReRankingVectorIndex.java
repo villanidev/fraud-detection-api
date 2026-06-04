@@ -84,8 +84,6 @@ public class ReRankingVectorIndex implements VectorIndex {
             return fraudCount;
         }
 
-        // Re-run coarse search with larger probe/candidate settings only for grey-area queries.
-        // This is the expensive path that helps clean borderline 2/5 and 3/5 decisions.
         try {
             int[] reRankNeighbors = tlReRankNeighbors.get();
             float[] reRankDists = tlReRankDists.get();

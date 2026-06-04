@@ -59,11 +59,6 @@ public class Main {
             return;
         }
 
-        if (args.length > 0 && "--coarse-evaluation".equals(args[0])) {
-            runCoarseEvaluation();
-            return;
-        }
-
         if (args.length > 0 && "--recall".equals(args[0])) {
             runRecallEvaluation();
             return;
@@ -165,13 +160,10 @@ public class Main {
         long seed = parseLongEnv(env, "RECALL_SEED", 42L);
         int[] nprobes = parseIntArrayEnv(env, "RECALL_NPROBES", new int[] { 1, 2, 4, 8, 16, 32 });
         int[] candidates = parseIntArrayEnv(env, "RECALL_CANDIDATES", new int[] { 10, 20, 30, 40, 50 });
-        String[] modes = parseStringArrayEnv(env, "RECALL_MODES", new String[] { "pq", "scalar" });
-        boolean[] pruneModes = parseBooleanArrayEnv(env, "RECALL_PRUNE_MODES", new boolean[] { false, true });
 
         System.out.printf("[recall] sampleSize=%d recallAt=%d seed=%d%n", sampleSize, recallAt, seed);
-        System.out.printf("[recall] modes=%s pruneModes=%s nprobes=%s candidates=%s%n",
-                Arrays.toString(modes), Arrays.toString(pruneModes),
-                Arrays.toString(nprobes), Arrays.toString(candidates));
+        System.out.printf("[recall] mode=%s nprobes=%s candidates=%s%n",
+            "pq", Arrays.toString(nprobes), Arrays.toString(candidates));
 
         float[][] sampleVectors = new float[sampleSize][14];
         Random rnd = new Random(seed);
@@ -183,66 +175,14 @@ public class Main {
 
         int[][] groundTruth = RecallEvaluator.computeGroundTruth(sampleVectors, ref.flat(), recallAt);
 
-        System.out.printf("mode,prune,nprobe,candidates,Recall@%d,Latência(ms),QPS%n", recallAt);
-        for (String mode : modes) {
-            for (boolean pruneEnabled : pruneModes) {
-                for (int np : nprobes) {
-                    for (int cand : candidates) {
-                        VectorIndex index = vectorStore.createIndexForBenchmark(np, cand, mode, pruneEnabled);
-                        RecallEvaluator.BenchmarkResult res = RecallEvaluator.benchmark(index, sampleVectors, recallAt);
-                        double recall = RecallEvaluator.evaluateRecall(groundTruth, res.neighbors(), recallAt);
-                        System.out.printf("%s,%s,%d,%d,%.4f,%.2f,%.1f%n",
-                                mode, pruneEnabled, np, cand, recall, res.avgLatencyMs(), res.qps());
-                    }
-                }
-            }
-        }
-
-        System.exit(0);
-    }
-
-    private static void runCoarseEvaluation() throws IOException {
-        Map<String, String> env = System.getenv();
-        DataReader dataReader = Services.get(DataReader.class);
-        System.out.println("[coarse-eval] Loading references...");
-        DataReader.ReferenceData ref = dataReader.loadReferences(Path.of(env.getOrDefault("REFERENCES_PATH", "src/main/resources/references.json.gz")));
-        float[] vectorsFlat = ref.flat();
-        int vectorCount = ref.count();
-
-        int[] kCandidates = parseIntArrayEnv(env, "COARSE_EVAL_KS", new int[] { 2048, 3072, 4096 });
-        int[] probeCandidates = parseIntArrayEnv(env, "COARSE_EVAL_PROBES", new int[] { 1, 2, 4 });
-        int[] trainingSampleSizes = parseIntArrayEnv(env, "COARSE_EVAL_TRAIN_SAMPLES", new int[] { 600_000, 900_000 });
-        int querySampleSize = parseIntEnv(env, "COARSE_EVAL_QUERY_SAMPLE", 2_000);
-        int groundTruthK = parseIntEnv(env, "COARSE_EVAL_GROUND_TRUTH_K", 5);
-        long seed = parseLongEnv(env, "COARSE_EVAL_SEED", 42L);
-
-        System.out.printf("[coarse-eval] ks=%s probes=%s trainSamples=%s querySample=%d groundTruthK=%d seed=%d%n",
-                Arrays.toString(kCandidates),
-                Arrays.toString(probeCandidates),
-                Arrays.toString(trainingSampleSizes),
-                querySampleSize,
-                groundTruthK,
-                seed);
-
-        System.out.println("train_sample,k,probe,top1_cluster_coverage,topk_cluster_coverage,empty_clusters,min_size,p50_size,p90_size,p99_size,max_size,mean_size,stddev_size");
-        for (int trainingSampleSize : trainingSampleSizes) {
-            KMeansEvaluator evaluator = new KMeansEvaluator(vectorsFlat, vectorCount, kCandidates, seed, Math.min(trainingSampleSize, vectorCount), 1);
-            for (KMeansEvaluator.CoarseCoverageStats stats : evaluator.evaluateCoarseDetailed(probeCandidates, querySampleSize, groundTruthK, trainingSampleSize)) {
-                KMeansEvaluator.ClusterOccupancyStats occupancy = stats.occupancy();
-                System.out.printf("%d,%d,%d,%.6f,%.6f,%d,%d,%d,%d,%d,%d,%.2f,%.2f%n",
-                        stats.trainingSampleSize(),
-                        stats.k(),
-                        stats.probe(),
-                        stats.top1ClusterCoverage(),
-                        stats.topKClusterCoverage(),
-                        occupancy.emptyClusters(),
-                        occupancy.minSize(),
-                        occupancy.p50Size(),
-                        occupancy.p90Size(),
-                        occupancy.p99Size(),
-                        occupancy.maxSize(),
-                        occupancy.meanSize(),
-                        occupancy.stdDevSize());
+        System.out.printf("mode,nprobe,candidates,Recall@%d,Latência(ms),QPS%n", recallAt);
+        for (int np : nprobes) {
+            for (int cand : candidates) {
+                VectorIndex index = vectorStore.createIndexForBenchmark(np, cand);
+                RecallEvaluator.BenchmarkResult res = RecallEvaluator.benchmark(index, sampleVectors, recallAt);
+                double recall = RecallEvaluator.evaluateRecall(groundTruth, res.neighbors(), recallAt);
+                System.out.printf("%s,%d,%d,%.4f,%.2f,%.1f%n",
+                        "pq", np, cand, recall, res.avgLatencyMs(), res.qps());
             }
         }
 
@@ -273,30 +213,4 @@ public class Main {
         return result;
     }
 
-    private static String[] parseStringArrayEnv(Map<String, String> env, String key, String[] defaultValue) {
-        String value = env.get(key);
-        if (value == null || value.isBlank()) {
-            return defaultValue;
-        }
-
-        String[] parts = value.split(",");
-        for (int i = 0; i < parts.length; i++) {
-            parts[i] = parts[i].trim();
-        }
-        return parts;
-    }
-
-    private static boolean[] parseBooleanArrayEnv(Map<String, String> env, String key, boolean[] defaultValue) {
-        String value = env.get(key);
-        if (value == null || value.isBlank()) {
-            return defaultValue;
-        }
-
-        String[] parts = value.split(",");
-        boolean[] result = new boolean[parts.length];
-        for (int i = 0; i < parts.length; i++) {
-            result[i] = Boolean.parseBoolean(parts[i].trim());
-        }
-        return result;
-    }
 }

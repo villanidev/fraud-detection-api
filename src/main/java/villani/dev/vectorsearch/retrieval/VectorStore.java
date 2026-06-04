@@ -412,17 +412,6 @@ public class VectorStore {
         );
     }
 
-    public VectorIndex createIndexForBenchmark(int nprobe, int candidates, String mode, boolean pruneEnabled) {
-        return factory.create(
-                centroids, clusterSizes, idsStartIndex, idsPayload, codesStartIndex, codesPayload,
-                vectors, labels, pq,
-                clusterMinValues, clusterMaxValues, clusterFlags,
-                scalarQuantizedPayload, scalarQuantizedStrideBytes,
-                vectorsChannel, vectorsOffset, vectorCount,
-                nprobe, candidates, mode, pruneEnabled
-        );
-    }
-
     public float[] getClusterMinValues() {
         return clusterMinValues;
     }

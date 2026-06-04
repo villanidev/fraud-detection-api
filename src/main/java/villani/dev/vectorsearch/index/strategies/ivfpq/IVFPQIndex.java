@@ -20,11 +20,6 @@ import java.util.Arrays;
 public class IVFPQIndex implements VectorIndex {
 
     private static final int DIMS = 14;
-    private static final int SCALAR_LUT_WIDTH = 256;
-    private static final int FLAG_HAS_SENTINEL_DIM5 = 1;
-    private static final int FLAG_HAS_CONTINUOUS_DIM5 = 1 << 1;
-    private static final int FLAG_HAS_SENTINEL_DIM6 = 1 << 2;
-    private static final int FLAG_HAS_CONTINUOUS_DIM6 = 1 << 3;
 
     private final float[] centroidsFlat;   // [K * DIMS] — flat for sequential access, no pointer chasing
     private final int K;
@@ -35,16 +30,6 @@ public class IVFPQIndex implements VectorIndex {
     private final ShortBuffer codesPayload;
     private final byte[] labels;           // [N] — 0=legit, 1=fraud
     private final ProductQuantizer pq;
-    private final float[] clusterMinValues;
-    private final float[] clusterMaxValues;
-    private final int[] clusterFlags;
-    private final ByteBuffer scalarQuantizedPayload;
-    private final int scalarQuantizedStrideBytes;
-    private final boolean scalarScanEnabled;
-    private final boolean pruneEnabled;
-    private final float pruneEpsilon;
-    private final float pruneSentinelPenalty;
-    private final int[] scalarPayloadStartByCluster;
     private final int nprobe;
     private final int candidates;
 
@@ -53,7 +38,6 @@ public class IVFPQIndex implements VectorIndex {
     private final ThreadLocal<float[]>   tlCentroidDist;
     private final ThreadLocal<int[]>     tlCentroidOrder;
     private final ThreadLocal<float[]> tlAdcTable;
-    private final ThreadLocal<float[]> tlScalarLut;
 
     public IVFPQIndex(float[][] centroids,
                       int[] clusterSizes,
@@ -68,10 +52,6 @@ public class IVFPQIndex implements VectorIndex {
                       int[] clusterFlags,
                       ByteBuffer scalarQuantizedPayload,
                       int scalarQuantizedStrideBytes,
-                      boolean scalarScanEnabled,
-                      boolean pruneEnabled,
-                      float pruneEpsilon,
-                      float pruneSentinelPenalty,
                       int nprobe,
                       int candidates) {
         System.out.println("Initializing IVFPQIndex with " + centroids.length + " centroids. And nprobe=" + nprobe + ", " +
@@ -88,29 +68,12 @@ public class IVFPQIndex implements VectorIndex {
         this.codesPayload = codesPayload;
         this.labels = labels;
         this.pq = pq;
-        this.clusterMinValues = clusterMinValues;
-        this.clusterMaxValues = clusterMaxValues;
-        this.clusterFlags = clusterFlags;
-        this.scalarQuantizedPayload = scalarQuantizedPayload;
-        this.scalarQuantizedStrideBytes = scalarQuantizedStrideBytes;
-        this.scalarScanEnabled = scalarScanEnabled && scalarQuantizedPayload != null && scalarQuantizedStrideBytes > 0;
-        this.pruneEnabled = pruneEnabled && clusterMinValues != null && clusterMaxValues != null && clusterFlags != null;
-        this.pruneEpsilon = pruneEpsilon;
-        this.pruneSentinelPenalty = pruneSentinelPenalty;
-        this.scalarPayloadStartByCluster = new int[K];
         this.nprobe = nprobe;
         this.candidates = candidates;
-
-        int scalarOffset = 0;
-        for (int c = 0; c < K; c++) {
-            this.scalarPayloadStartByCluster[c] = scalarOffset;
-            scalarOffset += clusterSizes[c] * scalarQuantizedStrideBytes;
-        }
 
         this.tlCentroidDist  = ThreadLocal.withInitial(() -> new float[K]);
         this.tlCentroidOrder = ThreadLocal.withInitial(() -> new int[K]);
         this.tlAdcTable      = ThreadLocal.withInitial(() -> new float[ProductQuantizer.M * ProductQuantizer.CODEBOOK_SIZE]);
-        this.tlScalarLut     = ThreadLocal.withInitial(() -> new float[DIMS * SCALAR_LUT_WIDTH]);
     }
 
     @Override
@@ -132,45 +95,32 @@ public class IVFPQIndex implements VectorIndex {
         }
         partialSort(centroidOrder, centroidDist, Math.min(nprobeParam, K));
 
-        // --- Step 3: Scan every cluster ---
         Arrays.fill(distances, Float.MAX_VALUE);
         Arrays.fill(neighbors, -1);
-
-        float[] adcTable = null;
-        float[] scalarLut = null;
-        if (scalarScanEnabled) {
-            scalarLut = tlScalarLut.get();
-            buildScalarLut(query, scalarLut);
-        } else {
-            adcTable = tlAdcTable.get();
-            pq.buildAdcTableFlat(query, adcTable);
-        }
+        float[] adcTable = tlAdcTable.get();
+        pq.buildAdcTableFlat(query, adcTable);
 
         int actualProbes = Math.min(nprobeParam, K);
+        int thresholdIndex = Math.max(0, candidatesParam - 1);
         for (int p = 0; p < actualProbes; p++) {
             int clusterIdx = centroidOrder[p];
-            if (shouldPruneCluster(clusterIdx, query, distances, candidatesParam)) {
-                continue;
-            }
             int count = clusterSizes[clusterIdx];
             int idsBase = idsStartIndex[clusterIdx];
             int codesBase = codesStartIndex[clusterIdx];
             for (int i = 0; i < count; i++) {
-                float approxDist = scalarScanEnabled
-                        ? scalarDistance(clusterIdx, i, scalarLut)
-                        : adcDistanceMapped(adcTable, codesBase + i * ProductQuantizer.M);
-                if (approxDist < distances[Math.max(0, candidatesParam - 1)]) {
+                float approxDist = adcDistanceMapped(adcTable, codesBase + i * ProductQuantizer.M);
+                if (approxDist < distances[thresholdIndex]) {
                     insertSorted(neighbors, distances, candidatesParam, idsPayload.get(idsBase + i), approxDist);
                 }
             }
         }
 
-        // --- Step 4: Count fraud labels in top-k ---
         int fraudCount = 0;
         for (int i = 0; i < topK; i++) {
-            if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) fraudCount++;
+            if (neighbors[i] >= 0 && labels[neighbors[i]] == 1) {
+                fraudCount++;
+            }
         }
-
         return fraudCount;
     }
 
@@ -266,45 +216,6 @@ public class IVFPQIndex implements VectorIndex {
                 d7*d7 + d8*d8 + d9*d9 + d10*d10 + d11*d11 + d12*d12 + d13*d13;
     }
 
-    private void buildScalarLut(float[] query, float[] lut) {
-        for (int dim = 0; dim < DIMS; dim++) {
-            int base = dim * SCALAR_LUT_WIDTH;
-            if (dim == 9 || dim == 10 || dim == 11) {
-                float distFalse = query[dim] * query[dim];
-                float distTrue = (query[dim] - 1f) * (query[dim] - 1f);
-                Arrays.fill(lut, base, base + SCALAR_LUT_WIDTH, distFalse);
-                lut[base + 255] = distTrue;
-                continue;
-            }
-
-            if (dim == 5 || dim == 6) {
-                for (int code = 0; code < 255; code++) {
-                    float decoded = code / 254.0f;
-                    float diff = query[dim] - decoded;
-                    lut[base + code] = diff * diff;
-                }
-                lut[base + 255] = query[dim] == -1f ? 0f : 4f;
-                continue;
-            }
-
-            for (int code = 0; code < SCALAR_LUT_WIDTH; code++) {
-                float decoded = code / 255.0f;
-                float diff = query[dim] - decoded;
-                lut[base + code] = diff * diff;
-            }
-        }
-    }
-
-    private float scalarDistance(int clusterIdx, int indexInCluster, float[] lut) {
-        int offset = scalarPayloadStartByCluster[clusterIdx] + indexInCluster * scalarQuantizedStrideBytes;
-        float distance = 0f;
-        for (int dim = 0; dim < DIMS; dim++) {
-            int code = scalarQuantizedPayload.get(offset + dim) & 0xFF;
-            distance += lut[dim * SCALAR_LUT_WIDTH + code];
-        }
-        return distance;
-    }
-
     private float adcDistanceMapped(float[] tableFlat, int codeOffset) {
         return tableFlat[0 * ProductQuantizer.CODEBOOK_SIZE + codesPayload.get(codeOffset)]
                 + tableFlat[1 * ProductQuantizer.CODEBOOK_SIZE + codesPayload.get(codeOffset + 1)]
@@ -313,80 +224,6 @@ public class IVFPQIndex implements VectorIndex {
                 + tableFlat[4 * ProductQuantizer.CODEBOOK_SIZE + codesPayload.get(codeOffset + 4)]
                 + tableFlat[5 * ProductQuantizer.CODEBOOK_SIZE + codesPayload.get(codeOffset + 5)]
                 + tableFlat[6 * ProductQuantizer.CODEBOOK_SIZE + codesPayload.get(codeOffset + 6)];
-    }
-
-    private boolean shouldPruneCluster(int clusterIdx, float[] query, float[] distances, int candidatesParam) {
-        if (!pruneEnabled || candidatesParam <= 0) {
-            return false;
-        }
-
-        float threshold = distances[candidatesParam - 1];
-        if (!Float.isFinite(threshold)) {
-            return false;
-        }
-
-        float lowerBound = clusterLowerBound(query, clusterIdx);
-        return lowerBound > threshold + pruneEpsilon;
-    }
-
-    private float clusterLowerBound(float[] query, int clusterIdx) {
-        int base = clusterIdx * DIMS;
-        float lowerBound = 0f;
-        for (int dim = 0; dim < DIMS; dim++) {
-            if (dim == 5 || dim == 6) {
-                lowerBound += sentinelAwareLowerBound(query[dim], clusterIdx, dim, base + dim);
-                continue;
-            }
-
-            float min = clusterMinValues[base + dim];
-            float max = clusterMaxValues[base + dim];
-            if (query[dim] < min) {
-                float diff = min - query[dim];
-                lowerBound += diff * diff;
-            } else if (query[dim] > max) {
-                float diff = query[dim] - max;
-                lowerBound += diff * diff;
-            }
-        }
-        return lowerBound;
-    }
-
-    private float sentinelAwareLowerBound(float queryValue, int clusterIdx, int dim, int valueIndex) {
-        int flags = clusterFlags[clusterIdx];
-        boolean hasSentinel = dim == 5
-                ? (flags & FLAG_HAS_SENTINEL_DIM5) != 0
-                : (flags & FLAG_HAS_SENTINEL_DIM6) != 0;
-        boolean hasContinuous = dim == 5
-                ? (flags & FLAG_HAS_CONTINUOUS_DIM5) != 0
-                : (flags & FLAG_HAS_CONTINUOUS_DIM6) != 0;
-
-        float best = Float.POSITIVE_INFINITY;
-        if (hasContinuous) {
-            float min = clusterMinValues[valueIndex];
-            float max = clusterMaxValues[valueIndex];
-            if (queryValue < min) {
-                float diff = min - queryValue;
-                best = diff * diff;
-            } else if (queryValue > max) {
-                float diff = queryValue - max;
-                best = diff * diff;
-            } else {
-                best = 0f;
-            }
-        }
-
-        if (hasSentinel) {
-            float sentinelDiff = queryValue + 1f;
-            float sentinelBound = sentinelDiff * sentinelDiff;
-            if (sentinelBound > pruneSentinelPenalty) {
-                sentinelBound = pruneSentinelPenalty;
-            }
-            if (sentinelBound < best) {
-                best = sentinelBound;
-            }
-        }
-
-        return best == Float.POSITIVE_INFINITY ? 0f : best;
     }
 
     @Override
