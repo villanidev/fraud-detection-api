@@ -164,7 +164,7 @@ public class Main {
         int recallAt = parseIntEnv(env, "RECALL_AT", 5);
         long seed = parseLongEnv(env, "RECALL_SEED", 42L);
         int[] nprobes = parseIntArrayEnv(env, "RECALL_NPROBES", new int[] { 1, 2, 4, 8, 16, 32 });
-        int[] candidates = parseIntArrayEnv(env, "RECALL_CANDIDATES", new int[] { 10, 15, 20, 30, 40, 50 });
+        int[] candidates = parseIntArrayEnv(env, "RECALL_CANDIDATES", new int[] { 10, 20, 30, 40, 50 });
         String[] modes = parseStringArrayEnv(env, "RECALL_MODES", new String[] { "pq", "scalar" });
         boolean[] pruneModes = parseBooleanArrayEnv(env, "RECALL_PRUNE_MODES", new boolean[] { false, true });
 
